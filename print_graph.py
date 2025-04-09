@@ -10,13 +10,16 @@ from multiprocessing import Manager
 logging.basicConfig(filename='progress.log', level=logging.INFO, format='%(asctime)s %(message)s')
 logger = logging.getLogger()
 
+# Define OWL namespace
 OWL = rdflib.Namespace("http://www.w3.org/2002/07/owl#")
 
 
+# Factory function for defaultdict
 def default_list_factory():
     return defaultdict(list)
 
 
+# Build a dictionary of triples excluding owl:sameAs
 def build_triple_dict(graph):
     triple_dict = defaultdict(default_list_factory)
     for s, p, o in graph:
@@ -25,6 +28,7 @@ def build_triple_dict(graph):
     return triple_dict
 
 
+# Get a readable label for a node
 def get_node_label(node, graph, label_dict):
     if node in label_dict:
         return f"'{label_dict[node]}'"
@@ -41,41 +45,62 @@ def get_node_label(node, graph, label_dict):
         return str(node)
 
 
-def process_subject(subject, triple_dict, node_labels, output_list, counter, lock, total_subjects, max_depth=50):
-    stack = [(subject, 0)]
+# Preprocessing step to find the deepest nodes
+def find_deepest_nodes(triple_dict, subjects):
+    depths = defaultdict(int)  # Store maximum depth for each node
+    max_depth = 0
+    deepest_nodes = set()
+
+    for subject in subjects:
+        stack = [(subject, 0)]  # (node, depth)
+        visited = set()
+
+        while stack:
+            node, depth = stack.pop()
+            if node in visited:
+                continue
+            visited.add(node)
+
+            # Update depth if this path is deeper
+            if depth > depths[node]:
+                depths[node] = depth
+                if depth > max_depth:
+                    max_depth = depth
+                    deepest_nodes = {node}
+                elif depth == max_depth:
+                    deepest_nodes.add(node)
+
+            # Explore children
+            for predicate, objects in triple_dict[node].items():
+                for obj in objects:
+                    if isinstance(obj, (rdflib.URIRef, rdflib.BNode)) and obj not in visited:
+                        stack.append((obj, depth + 1))
+
+    return max_depth, deepest_nodes
+
+
+# Process a single subject and generate output
+def process_subject(subject, triple_dict, node_labels, output_list, counter, lock, total_subjects):
+    stack = [(subject, 0)]  # (node, depth)
     visited = set()
     local_output = []
 
     while stack:
         node, depth = stack.pop()
-        # Limit traversal depth
-        if depth > max_depth:
-            logger.warning(f"Reached maximum depth {max_depth} for node {node}")
-            continue
         if node in visited:
             continue
         visited.add(node)
 
-        start_process = perf_counter()
         node_str = node_labels[node]
         local_output.append(("  " * depth + f"Visiting {node_str}", depth))
-        # Count triples for this node
-        num_triples = sum(len(objects) for objects in triple_dict[node].values())
-        logger.info(f"Processing node {node_str} at depth {depth} with {num_triples} triples")
 
         for predicate, objects in triple_dict[node].items():
-            if predicate != OWL.sameAs:
-                pred_str = node_labels[predicate]
-                # Warn if a predicate has many objects
-                if len(objects) > 1000:
-                    logger.warning(f"Node {node_str} has {len(objects)} objects for predicate {pred_str}")
-                for obj in objects:
-                    obj_str = node_labels[obj]
-                    local_output.append(("  " * (depth + 1) + f"{pred_str} -> {obj_str}", depth + 1))
-                    if isinstance(obj, (rdflib.URIRef, rdflib.BNode)):
-                        stack.append((obj, depth + 1))
-        elapsed = perf_counter() - start_process
-        logger.info(f"Visited node {node_str} at depth {depth} in {elapsed:.4f} seconds")
+            pred_str = node_labels[predicate]
+            for obj in objects:
+                obj_str = node_labels[obj]
+                local_output.append(("  " * (depth + 1) + f"{pred_str} -> {obj_str}", depth + 1))
+                if isinstance(obj, (rdflib.URIRef, rdflib.BNode)):
+                    stack.append((obj, depth + 1))
 
     output_list.append((subject, local_output))
 
@@ -85,21 +110,29 @@ def process_subject(subject, triple_dict, node_labels, output_list, counter, loc
             logger.info(f"Processed {counter.value} out of {total_subjects} subjects")
 
 
-def print_graph_step_by_step(graph, num_threads=4, max_depth=50):
+# Main function to print the graph step-by-step
+def print_graph_step_by_step(graph, num_threads=4):
     process_start = perf_counter()
-    triple_dict = build_triple_dict(graph)
-    label_dict = {}
-    for s, p, o in graph.triples((None, rdflib.RDFS.label, None)):
-        if isinstance(o, rdflib.Literal):
-            label_dict[s] = str(o)
 
+    # Build triple dictionary and label dictionary
+    triple_dict = build_triple_dict(graph)
+    label_dict = {s: str(o) for s, p, o in graph.triples((None, rdflib.RDFS.label, None)) if
+                  isinstance(o, rdflib.Literal)}
+
+    # Generate labels for all nodes
     all_nodes = set(graph.subjects()) | set(graph.predicates()) | set(graph.objects())
     node_labels = {node: get_node_label(node, graph, label_dict) for node in all_nodes}
 
+    # Get all subjects
     subjects = list(graph.subjects())
     total_subjects = len(subjects)
     logger.info(f"Total subjects to process: {total_subjects}")
 
+    # Preprocessing: Find deepest nodes
+    max_depth, deepest_nodes = find_deepest_nodes(triple_dict, subjects)
+    logger.info(f"Deepest nodes at depth {max_depth}: {', '.join(node_labels[node] for node in deepest_nodes)}")
+
+    # Process subjects in parallel
     with Manager() as manager:
         output_list = manager.list()
         counter = manager.Value('i', 0)
@@ -109,29 +142,27 @@ def print_graph_step_by_step(graph, num_threads=4, max_depth=50):
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             executor.map(
                 partial(process_subject, triple_dict=triple_dict, node_labels=node_labels, output_list=output_list,
-                        counter=counter, lock=lock, total_subjects=total_subjects, max_depth=max_depth),
+                        counter=counter, lock=lock, total_subjects=total_subjects),
                 subjects
             )
         logger.info("Finished processing subjects")
 
+        # Print sorted results
         results = sorted(output_list, key=lambda x: str(x[0]))
         for subject, local_output in results:
             for line, depth in sorted(local_output, key=lambda x: x[1]):
                 print(line)
 
     process_end = perf_counter()
-    process_time = process_end - process_start
-    logger.info(f"Processing time: {process_time:.4f} seconds")
+    logger.info(f"Processing time: {process_end - process_start:.4f} seconds")
 
 
+# Entry point
 if __name__ == "__main__":
     start_time = perf_counter()
     logger.info("Starting to parse OWL file")
     g = rdflib.Graph()
     g.parse("opencyc-owl/opencyc-2012-05-10_fixed.owl", format="xml")
-    parse_time = perf_counter() - start_time
-    logger.info(f"Finished parsing OWL file, took {parse_time:.4f} seconds")
-    # Reduced num_threads to 4 and added max_depth
-    print_graph_step_by_step(g, num_threads=4, max_depth=50)
-    total_time = perf_counter() - start_time
-    logger.info(f"Total execution time: {total_time:.4f} seconds")
+    logger.info(f"Finished parsing OWL file, took {perf_counter() - start_time:.4f} seconds")
+    print_graph_step_by_step(g, num_threads=8)
+    logger.info(f"Total execution time: {perf_counter() - start_time:.4f} seconds")
