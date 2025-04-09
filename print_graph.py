@@ -10,17 +10,19 @@ from concurrent.futures import ThreadPoolExecutor
 # Configure logging
 logging.basicConfig(filename='progress.log', level=logging.INFO, format='%(asctime)s %(message)s')
 logger = logging.getLogger()
-
-# Define OWL namespace
+logging.basicConfig(
+    filename='compute_depths.log',
+    level=logging.INFO,
+    format='%(asctime)s [%(processName)s] %(message)s'
+)
+compute_depths_logger = logging.getLogger(__name__)
 OWL = rdflib.Namespace("http://www.w3.org/2002/07/owl#")
 
 
-# Factory function for defaultdict
 def default_list_factory():
     return defaultdict(list)
 
 
-# Build a dictionary of triples excluding owl:sameAs
 def build_triple_dict(graph):
     triple_dict = defaultdict(default_list_factory)
     for s, p, o in graph:
@@ -29,7 +31,6 @@ def build_triple_dict(graph):
     return triple_dict
 
 
-# Get a readable label for a node
 def get_node_label(node, graph, label_dict):
     if node in label_dict:
         return f"'{label_dict[node]}'"
@@ -46,23 +47,37 @@ def get_node_label(node, graph, label_dict):
         return str(node)
 
 
-# Worker function for multiprocessing in find_deepest_nodes
 def compute_depths(subjects_chunk, triple_dict):
+    """
+    Compute depths for a chunk of subjects in an RDF graph.
+
+    Args:
+        subjects_chunk: List of subjects to process.
+        triple_dict: Dictionary mapping nodes to their predicates and objects.
+
+    Returns:
+        Tuple of (local_depths, local_max_depth, local_deepest_nodes).
+    """
     local_depths = defaultdict(int)
     local_max_depth = 0
     local_deepest_nodes = set()
 
     for subject in subjects_chunk:
+        logger.info(f"Starting to process subject: {subject}")
         stack = [(subject, 0)]  # (node, depth)
         visited = set()
+        node_count = 0
 
         while stack:
             node, depth = stack.pop()
             if node in visited:
                 continue
             visited.add(node)
+            node_count += 1
 
-            # Update depth if this path is deeper
+            if node_count % 1000 == 0:
+                logger.info(f"Processed {node_count} nodes for subject {subject}")
+
             if depth > local_depths[node]:
                 local_depths[node] = depth
                 if depth > local_max_depth:
@@ -76,6 +91,9 @@ def compute_depths(subjects_chunk, triple_dict):
                 for obj in objects:
                     if isinstance(obj, (rdflib.URIRef, rdflib.BNode)) and obj not in visited:
                         stack.append((obj, depth + 1))
+
+        # Log completion of the subject
+        logger.info(f"Finished processing subject: {subject}, processed {node_count} nodes")
 
     return local_depths, local_max_depth, local_deepest_nodes
 
@@ -205,5 +223,5 @@ if __name__ == "__main__":
     g = rdflib.Graph()
     g.parse("opencyc-owl/opencyc-2012-05-10_fixed.owl", format="xml")
     logger.info(f"Finished parsing OWL file, took {perf_counter() - start_time:.4f} seconds")
-    print_graph_step_by_step(g, num_threads=8, num_processes=4)
+    print_graph_step_by_step(g, num_threads=8, num_processes=32)
     logger.info(f"Total execution time: {perf_counter() - start_time:.4f} seconds")
