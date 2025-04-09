@@ -158,6 +158,11 @@ class KMSyntaxGenerator:
         expr += f" {body})"
         return expr
 
+    @staticmethod
+    def _join_expressions(expressions):
+        """Join a list of expressions into a space-separated string."""
+        return ' '.join(str(expr) for expr in expressions)
+
     def arithmetic_expression(self, operator, *operands):
         """Generate an arithmetic expression, e.g., (+ 1 2)."""
         return f"({operator} {self._join_expressions(operands)})"

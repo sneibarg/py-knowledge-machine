@@ -43,6 +43,7 @@ def main():
     parser.add_argument("--single-thread", action="store_true", help="Run in single-threaded mode for testing.")
     parser.add_argument("--debug", action="store_true", help="Enable debug output to console.")
     parser.add_argument("--dry-run", action="store_true", help="Skip sending requests to KM server.")
+    parser.add_argument("--num-processes", action="store", help="Specify the number of processes to fork.")
     args = parser.parse_args()
 
     logger = setup_logging("main", args.debug)
@@ -68,7 +69,8 @@ def main():
         class_results = process_items(classes, "class", km_generator, 0, timestamp, args)
         individual_results = process_items(individuals, "individual", km_generator, 0, timestamp, args)
     else:
-        num_processes = cpu_count()
+        if args.num_processes is None:
+            num_processes = cpu_count()
         logger.info(f"Running in multi-threaded mode with {num_processes} processes.")
 
         batch_size = max(1, len(classes) // num_processes)
