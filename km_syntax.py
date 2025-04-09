@@ -2,60 +2,68 @@ import rdflib
 from utils import rdf_to_krl_name
 import json
 
+cyc_annot_label = rdflib.URIRef("http://some.namespace/cycAnnot:label")
+STANDARD_PREDICATES = {
+    rdflib.RDF.type: "instance-of",
+    rdflib.RDFS.subClassOf: "superclasses",
+    rdflib.RDFS.label: "label",
+}
+
 
 class KMSyntaxGenerator:
     def __init__(self, graph):
-        """Initialize the generator with an RDF graph."""
         self.graph = graph
+        self.resource_names = self.build_resource_names()
+        self.predicate_names = self.build_predicate_names()
 
-    # Helper Methods
-    def _format_slot(self, slot_name, value):
-        """Format a slot-value pair."""
-        return f"({slot_name} {value})"
+    def build_resource_names(self):
+        """Map resource URIs to preferred names."""
+        names = {}
+        for s in self.graph.subjects():
+            labels = [str(o) for o in self.graph.objects(s, cyc_annot_label) if isinstance(o, rdflib.Literal)]
+            if not labels:
+                labels = [str(o) for o in self.graph.objects(s, rdflib.RDFS.label) if isinstance(o, rdflib.Literal)]
+            if labels:
+                preferred = next((l for l in labels if l[0].isupper()), labels[0])
+                names[s] = preferred
+            else:
+                names[s] = rdf_to_krl_name(s)
+        return names
 
-    def _join_expressions(self, expressions, separator=" "):
-        """Join multiple expressions with a separator."""
-        return separator.join(str(expr) for expr in expressions)
+    def build_predicate_names(self):
+        """Map predicate URIs to slot names."""
+        names = STANDARD_PREDICATES.copy()
+        for pred in self.graph.predicates():
+            if pred not in names:
+                labels = [str(o) for o in self.graph.objects(pred, rdflib.RDFS.label) if isinstance(o, rdflib.Literal)]
+                names[pred] = labels[0] if labels else rdf_to_krl_name(pred)
+        return names
 
-    # RDF to KM Methods
+    def get_resource_name(self, resource):
+        """Get the preferred name for a resource."""
+        return self.resource_names.get(resource, rdf_to_krl_name(resource))
+
+    def get_slot_name(self, predicate):
+        """Get the slot name for a predicate."""
+        return self.predicate_names.get(predicate, rdf_to_krl_name(predicate))
+
     def class_to_km(self, class_uri):
-        class_name = rdf_to_krl_name(class_uri)
-        superclasses = [rdf_to_krl_name(sup) for sup in self.graph.objects(class_uri, rdflib.RDFS.subClassOf)
-                        if sup != rdflib.OWL.Thing]
-        labels = [str(label) for label in self.graph.objects(class_uri, rdflib.RDFS.label)]
-        comments = [str(comment) for comment in self.graph.objects(class_uri, rdflib.RDFS.comment)]
-        custom_comment_pred = rdflib.URIRef("http://some.namespace/Mx4rwLSVCpwpEbGdrcN5Y29ycA")
-        custom_comments = [str(cc) for cc in self.graph.objects(class_uri, custom_comment_pred)]
-        cyc_annot_pred = rdflib.URIRef("http://some.namespace/cycAnnot:label")
-        cyc_annot_labels = [str(label) for label in self.graph.objects(class_uri, cyc_annot_pred)]
-        same_as = [rdf_to_krl_name(sa) for sa in self.graph.objects(class_uri, rdflib.OWL.sameAs)]
-        additional_types = [rdf_to_krl_name(t) for t in self.graph.objects(class_uri, rdflib.RDF.type)
-                            if t not in [rdflib.OWL.Class, rdflib.RDFS.Class]]
+        """Convert an OWL class to KM syntax."""
+        frame_name = self.get_resource_name(class_uri)
+        rdf_id = str(class_uri)
+        slots = {}
 
-        slots = []
-        for prop in self.graph.subjects(rdflib.RDFS.domain, class_uri):
-            prop_name = rdf_to_krl_name(prop)
-            ranges = [rdf_to_krl_name(r) for r in self.graph.objects(prop, rdflib.RDFS.range)]
-            range_str = ranges[0] if ranges else "Thing"
-            slots.append(f"({prop_name} ((must-be-a {range_str})))")
+        for pred, obj in self.graph.predicate_objects(class_uri):
+            slot_name = self.get_slot_name(pred)
+            if isinstance(obj, rdflib.URIRef):
+                value = self.get_resource_name(obj)
+            else:
+                value = json.dumps(str(obj))
+            slots.setdefault(slot_name, []).append(value)
 
-        expr = f"(every {class_name} has"
-        if superclasses:
-            expr += f" (superclasses ({' '.join(superclasses)}))"
-        if labels:
-            expr += f" (label ({' '.join([json.dumps(label) for label in labels])}))"
-        if comments:
-            expr += f" (comment ({' '.join([json.dumps(comment) for comment in comments])}))"
-        if custom_comments:
-            expr += f" (additional_comments ({' '.join([json.dumps(cc) for cc in custom_comments])}))"
-        if cyc_annot_labels:
-            expr += f" (cyc_annot_label ({' '.join([json.dumps(label) for label in cyc_annot_labels])}))"
-        if same_as:
-            expr += f" (same_as ({' '.join(same_as)}))"
-        if additional_types:
-            expr += f" (additional_types ({' '.join(additional_types)}))"
-        if slots:
-            expr += f" {' '.join(slots)}"
+        expr = f"({frame_name} has (rdfId (\"{rdf_id}\"))"
+        for slot, values in slots.items():
+            expr += f" ({slot} ({' '.join(values)}))"
         expr += ")"
         return expr
 
@@ -138,8 +146,8 @@ class KMSyntaxGenerator:
         expr += ")"
         return expr
 
-    # General KM Syntax Methods
-    def aggregate_to_km(self, element_type, number_of_elements=None):
+    @staticmethod
+    def aggregate_to_km(element_type, number_of_elements=None):
         """Generate an Aggregate frame (Section 29.6)."""
         expr = "(a Aggregate with"
         expr += f" (element-type ({element_type}))"
@@ -148,11 +156,13 @@ class KMSyntaxGenerator:
         expr += ")"
         return expr
 
-    def quoted_expression(self, expr):
+    @staticmethod
+    def quoted_expression(expr):
         """Generate a quoted expression (Section 29.6)."""
         return f"'{expr}"
 
-    def forall_expression(self, var, collection, body, where=None):
+    @staticmethod
+    def forall_expression(var, collection, body, where=None):
         """Generate a forall expression (Section 29)."""
         expr = f"(forall {var} in {collection}"
         if where:
@@ -168,7 +178,8 @@ class KMSyntaxGenerator:
         """Generate a logical expression, e.g., (and A B)."""
         return f"({operator} {self._join_expressions(operands)})"
 
-    def unification_expression(self, type_, expr1, expr2):
+    @staticmethod
+    def unification_expression(type_, expr1, expr2):
         """Generate a unification expression based on type (set, eager, bag)."""
         if type_ == "set":
             return f"(({expr1}) && ({expr2}))"
@@ -179,7 +190,8 @@ class KMSyntaxGenerator:
         else:
             raise ValueError(f"Unknown unification type: {type_}")
 
-    def if_expression(self, condition, then_expr, else_expr=None):
+    @staticmethod
+    def if_expression(condition, then_expr, else_expr=None):
         """Generate an if-then-else expression."""
         expr = f"(if {condition} then {then_expr}"
         if else_expr:
@@ -199,15 +211,11 @@ class KMSyntaxGenerator:
         expr += ")"
         return expr
 
-    def user_defined_infix(self, operator, left, right):
+    @staticmethod
+    def user_defined_infix(operator, left, right):
         """Generate a user-defined infix operator expression."""
         return f"({left} {operator} {right})"
 
     def aggregation_function(self, func_name, *args):
         """Generate a user-defined aggregation function expression."""
         return f"({func_name} {self._join_expressions(args)})"
-
-    def rdf_to_krl_name(uri):
-        # Simplified: Replace with actual URI-to-KM-name conversion logic
-        return uri.split('/')[-1].replace(':', '_')
-
