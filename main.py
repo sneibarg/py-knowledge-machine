@@ -31,6 +31,8 @@ def pretty_print_sexp(sexp, indent=0):
 
 def pretty_print(expr):
     """Pretty-print a KM expression string, falling back to original if parsing fails."""
+    if expr is None:
+        return expr
     try:
         parsed = sexpdata.loads(expr)
         return pretty_print_sexp(parsed)
