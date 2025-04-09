@@ -8,14 +8,8 @@ from multiprocessing import Manager
 from concurrent.futures import ThreadPoolExecutor
 
 # Configure logging
-logging.basicConfig(filename='progress.log', level=logging.INFO, format='%(asctime)s %(message)s')
+logging.basicConfig(filename='progress.log', level=logging.INFO, format='%(asctime)s [%(processName)s] %(message)s')
 logger = logging.getLogger()
-logging.basicConfig(
-    filename='compute_depths.log',
-    level=logging.INFO,
-    format='%(asctime)s [%(processName)s] %(message)s'
-)
-compute_depths_logger = logging.getLogger(__name__)
 OWL = rdflib.Namespace("http://www.w3.org/2002/07/owl#")
 
 
