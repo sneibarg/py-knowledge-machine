@@ -63,7 +63,7 @@ def compute_depths(subjects_chunk, triple_dict):
     local_deepest_nodes = set()
 
     for subject in subjects_chunk:
-        logger.info(f"Starting to process subject: {subject}")
+        compute_depths_logger.info(f"Starting to process subject: {subject}")
         stack = [(subject, 0)]  # (node, depth)
         visited = set()
         node_count = 0
@@ -76,7 +76,7 @@ def compute_depths(subjects_chunk, triple_dict):
             node_count += 1
 
             if node_count % 1000 == 0:
-                logger.info(f"Processed {node_count} nodes for subject {subject}")
+                compute_depths_logger.info(f"Processed {node_count} nodes for subject {subject}")
 
             if depth > local_depths[node]:
                 local_depths[node] = depth
@@ -93,7 +93,7 @@ def compute_depths(subjects_chunk, triple_dict):
                         stack.append((obj, depth + 1))
 
         # Log completion of the subject
-        logger.info(f"Finished processing subject: {subject}, processed {node_count} nodes")
+        compute_depths_logger.info(f"Finished processing subject: {subject}, processed {node_count} nodes")
 
     return local_depths, local_max_depth, local_deepest_nodes
 
