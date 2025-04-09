@@ -44,6 +44,7 @@ def process_items(items, item_type, generator, process_id, timestamp, args):
     batch_logger = setup_batch_logger(item_type, process_id, timestamp, args.debug)
     batch_logger.info(f"Starting processing for {item_type} with {len(items)} items.")
     results = []
+
     if item_type == "class":
         for class_uri in items:
             expr = generator.class_to_km(class_uri)
