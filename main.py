@@ -49,22 +49,22 @@ def process_items(items, item_type, generator, process_id, timestamp, args):
         for class_uri in items:
             expr = generator.class_to_km(class_uri)
             result = send_to_km(expr, dry_run=args.dry_run)
-            logged_result = pretty_print(result) if args.pretty_print else result
-            batch_logger.info(f"Generated: {expr} | Result:\n{logged_result}")
+            expr = pretty_print(result) if args.pretty_print else expr
+            batch_logger.info(f"Generated: {expr} | Result:\n{result}")
             results.append((expr, result))
     elif item_type == "individual":
         for ind_uri, class_uri in items:
             expr = generator.individual_to_km(ind_uri, class_uri)
             result = send_to_km(expr, dry_run=args.dry_run)
-            logged_result = pretty_print(result) if args.pretty_print else result
-            batch_logger.info(f"Generated: {expr} | Result:\n{logged_result}")
+            expr = pretty_print(result) if args.pretty_print else expr
+            batch_logger.info(f"Generated: {expr} | Result:\n{result}")
             results.append((expr, result))
     elif item_type == "property":
         for prop_uri in items:
             expr = generator.property_to_km(prop_uri)
             result = send_to_km(expr, dry_run=args.dry_run)
-            logged_result = pretty_print(result) if args.pretty_print else result
-            batch_logger.info(f"Generated: {expr} | Result:\n{logged_result}")
+            expr = pretty_print(result) if args.pretty_print else expr
+            batch_logger.info(f"Generated: {expr} | Result:\n{result}")
             results.append((expr, result))
     batch_logger.info("Processing complete.")
     return results
