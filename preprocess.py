@@ -1,3 +1,4 @@
+import os
 import re
 from config import OWL_FILE, FIXED_OWL_FILE
 from logging_setup import setup_logging

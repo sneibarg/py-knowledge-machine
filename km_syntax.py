@@ -2,7 +2,7 @@ import rdflib
 from utils import rdf_to_krl_name
 import json
 
-cyc_annot_label = rdflib.URIRef("http://some.namespace/cycAnnot:label")
+cyc_annot_label = rdflib.URIRef("http://sw.cyc.com/CycAnnotations_v1#label")
 STANDARD_PREDICATES = {
     rdflib.RDF.type: "instance-of",
     rdflib.RDFS.subClassOf: "superclasses",
@@ -11,8 +11,9 @@ STANDARD_PREDICATES = {
 
 
 class KMSyntaxGenerator:
-    def __init__(self, graph):
+    def __init__(self, graph, object_map):
         self.graph = graph
+        self.object_map = object_map
         self.resource_names = self.build_resource_names()
         self.predicate_names = self.build_predicate_names()
 
@@ -21,13 +22,14 @@ class KMSyntaxGenerator:
         names = {}
         for s in self.graph.subjects():
             labels = [str(o) for o in self.graph.objects(s, cyc_annot_label) if isinstance(o, rdflib.Literal)]
-            if not labels:
-                labels = [str(o) for o in self.graph.objects(s, rdflib.RDFS.label) if isinstance(o, rdflib.Literal)]
             if labels:
                 preferred = next((l for l in labels if l[0].isupper()), labels[0])
                 names[s] = preferred
             else:
-                names[s] = rdf_to_krl_name(s)
+                if s in self.object_map and self.object_map[s].get('label'):
+                    names[s] = self.object_map[s]['label']
+                else:
+                    names[s] = rdf_to_krl_name(s)
         return names
 
     def build_predicate_names(self):
@@ -35,8 +37,10 @@ class KMSyntaxGenerator:
         names = STANDARD_PREDICATES.copy()
         for pred in self.graph.predicates():
             if pred not in names:
-                labels = [str(o) for o in self.graph.objects(pred, rdflib.RDFS.label) if isinstance(o, rdflib.Literal)]
-                names[pred] = labels[0] if labels else rdf_to_krl_name(pred)
+                if pred in self.object_map and self.object_map[pred].get('label'):
+                    names[pred] = self.object_map[pred]['label']
+                else:
+                    names[pred] = rdf_to_krl_name(pred)
         return names
 
     def get_resource_name(self, resource):
@@ -52,7 +56,6 @@ class KMSyntaxGenerator:
         frame_name = self.get_resource_name(class_uri)
         rdf_id = str(class_uri)
         slots = {}
-
         for pred, obj in self.graph.predicate_objects(class_uri):
             slot_name = self.get_slot_name(pred)
             if isinstance(obj, rdflib.URIRef):
@@ -60,7 +63,6 @@ class KMSyntaxGenerator:
             else:
                 value = json.dumps(str(obj))
             slots.setdefault(slot_name, []).append(value)
-
         expr = f"({frame_name} has (rdfId (\"{rdf_id}\"))"
         for slot, values in slots.items():
             expr += f" ({slot} ({' '.join(values)}))"
@@ -68,18 +70,17 @@ class KMSyntaxGenerator:
         return expr
 
     def individual_to_km(self, ind_uri, class_uri):
-        """Generate KM frame for an individual (instance has ...)."""
-        ind_name = rdf_to_krl_name(ind_uri)
-        class_name = rdf_to_krl_name(class_uri)
+        """Generate KM frame for an individual."""
+        ind_name = self.get_resource_name(ind_uri)
+        class_name = self.get_resource_name(class_uri)
         slots = []
         for prop, obj in self.graph.predicate_objects(ind_uri):
-            prop_name = rdf_to_krl_name(prop)
+            prop_name = self.get_slot_name(prop)
             if isinstance(obj, rdflib.URIRef):
-                obj_name = rdf_to_krl_name(obj)
+                obj_name = self.get_resource_name(obj)
                 slots.append(f"({prop_name} ({obj_name}))")
             else:
                 slots.append(f"({prop_name} ({json.dumps(str(obj))}))")
-
         expr = f"({ind_name} has (instance-of ({class_name}))"
         if slots:
             expr += f" {' '.join(slots)}"
@@ -87,41 +88,28 @@ class KMSyntaxGenerator:
         return expr
 
     def property_to_km(self, prop_uri):
-        """Generate a KM frame for an OWL ObjectProperty as a Slot instance."""
-        # Convert the property URI to a KM-compatible name
-        prop_name = rdf_to_krl_name(prop_uri)
-
-        # Extract standard OWL attributes
+        """Generate a KM frame for an OWL ObjectProperty."""
+        prop_name = self.get_resource_name(prop_uri)
         labels = [str(label) for label in self.graph.objects(prop_uri, rdflib.RDFS.label)]
         comments = [str(comment) for comment in self.graph.objects(prop_uri, rdflib.RDFS.comment)]
-        domains = [rdf_to_krl_name(d) for d in self.graph.objects(prop_uri, rdflib.RDFS.domain)]
-        ranges = [rdf_to_krl_name(r) for r in self.graph.objects(prop_uri, rdflib.RDFS.range)]
-        superslots = [rdf_to_krl_name(sp) for sp in self.graph.objects(prop_uri, rdflib.RDFS.subPropertyOf)]
-        inverses = [rdf_to_krl_name(i) for i in self.graph.objects(prop_uri, rdflib.OWL.inverseOf)]
-
-        # Check if the property is functional (at most one value per instance)
+        domains = [self.get_resource_name(d) for d in self.graph.objects(prop_uri, rdflib.RDFS.domain)]
+        ranges = [self.get_resource_name(r) for r in self.graph.objects(prop_uri, rdflib.RDFS.range)]
+        superslots = [self.get_resource_name(sp) for sp in self.graph.objects(prop_uri, rdflib.RDFS.subPropertyOf)]
+        inverses = [self.get_resource_name(i) for i in self.graph.objects(prop_uri, rdflib.OWL.inverseOf)]
         is_functional = (prop_uri, rdflib.RDF.type, rdflib.OWL.FunctionalProperty) in self.graph
         cardinality = "1-to-1" if is_functional else None
-
-        # Capture additional types beyond ObjectProperty and FunctionalProperty
-        additional_types = [rdf_to_krl_name(t) for t in self.graph.objects(prop_uri, rdflib.RDF.type)
+        additional_types = [self.get_resource_name(t) for t in self.graph.objects(prop_uri, rdflib.RDF.type)
                             if t not in [rdflib.OWL.ObjectProperty, rdflib.OWL.FunctionalProperty]]
-
-        # Handle custom annotations (non-standard predicates)
         custom_annotations = {}
         for pred, obj in self.graph.predicate_objects(prop_uri):
             if pred not in [rdflib.RDFS.label, rdflib.RDFS.comment, rdflib.RDFS.domain, rdflib.RDFS.range,
                             rdflib.RDFS.subPropertyOf, rdflib.OWL.inverseOf, rdflib.RDF.type, rdflib.OWL.sameAs]:
-                pred_name = rdf_to_krl_name(pred)
+                pred_name = self.get_slot_name(pred)
                 if isinstance(obj, rdflib.Literal):
                     custom_annotations.setdefault(pred_name, []).append(str(obj))
                 else:
-                    custom_annotations.setdefault(pred_name, []).append(rdf_to_krl_name(obj))
-
-        # Capture equivalent properties (owl:sameAs)
-        same_as = [rdf_to_krl_name(sa) for sa in self.graph.objects(prop_uri, rdflib.OWL.sameAs)]
-
-        # Build the KM expression
+                    custom_annotations.setdefault(pred_name, []).append(self.get_resource_name(obj))
+        same_as = [self.get_resource_name(sa) for sa in self.graph.objects(prop_uri, rdflib.OWL.sameAs)]
         expr = f"({prop_name} has (instance-of (Slot))"
         if labels:
             expr += f" (label ({' '.join([json.dumps(label) for label in labels])}))"
@@ -199,6 +187,11 @@ class KMSyntaxGenerator:
         expr += ")"
         return expr
 
+    @staticmethod
+    def user_defined_infix(operator, left, right):
+        """Generate a user-defined infix operator expression."""
+        return f"({left} {operator} {right})"
+
     def oneof_expression(self, *options):
         """Generate a oneof expression."""
         return f"(oneof {self._join_expressions(options)})"
@@ -210,11 +203,6 @@ class KMSyntaxGenerator:
             expr += f" with {self._join_expressions(slots)}"
         expr += ")"
         return expr
-
-    @staticmethod
-    def user_defined_infix(operator, left, right):
-        """Generate a user-defined infix operator expression."""
-        return f"({left} {operator} {right})"
 
     def aggregation_function(self, func_name, *args):
         """Generate a user-defined aggregation function expression."""
