@@ -31,8 +31,6 @@ def pretty_print_sexp(sexp, indent=0):
 
 def pretty_print(expr):
     """Pretty-print a KM expression string, falling back to original if parsing fails."""
-    if expr is None:
-        return expr
     try:
         parsed = sexpdata.loads(expr)
         return pretty_print_sexp(parsed)
@@ -49,21 +47,21 @@ def process_items(items, item_type, generator, process_id, timestamp, args):
         for class_uri in items:
             expr = generator.class_to_km(class_uri)
             result = send_to_km(expr, dry_run=args.dry_run)
-            expr = pretty_print(expr) if args.pretty_print else expr
+            # expr = pretty_print(expr) if args.pretty_print else expr
             batch_logger.info(f"Generated: {expr} | Result:\n{result}")
             results.append((expr, result))
     elif item_type == "individual":
         for ind_uri, class_uri in items:
             expr = generator.individual_to_km(ind_uri, class_uri)
             result = send_to_km(expr, dry_run=args.dry_run)
-            expr = pretty_print(expr) if args.pretty_print else expr
+            # expr = pretty_print(expr) if args.pretty_print else expr
             batch_logger.info(f"Generated: {expr} | Result:\n{result}")
             results.append((expr, result))
     elif item_type == "property":
         for prop_uri in items:
             expr = generator.property_to_km(prop_uri)
             result = send_to_km(expr, dry_run=args.dry_run)
-            expr = pretty_print(expr) if args.pretty_print else expr
+            # expr = pretty_print(expr) if args.pretty_print else expr
             batch_logger.info(f"Generated: {expr} | Result:\n{result}")
             results.append((expr, result))
     batch_logger.info("Processing complete.")
@@ -76,7 +74,7 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Enable debug output to console.")
     parser.add_argument("--dry-run", action="store_true", help="Skip sending requests to KM server.")
     parser.add_argument("--num-processes", type=int, help="Specify the number of processes to fork.")
-    parser.add_argument("--pretty-print", action="store_true", help="Enable pretty-printing of KM results in logs.")
+    # parser.add_argument("--pretty-print", action="store_true", help="Enable pretty-printing of KM results in logs.")
     args = parser.parse_args()
 
     logger = setup_logging("main", args.debug)
