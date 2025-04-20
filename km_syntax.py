@@ -13,6 +13,10 @@ STANDARD_PREDICATES = {
     rdflib.RDFS.label: "label",
     rdflib.OWL.sameAs: "same_as",
 }
+BUILT_IN_FRAMES = {
+    "instance-of", "superclasses", "label", "Slot", "Class", "Thing", "has",
+    "with", "a", "in", "where", "then", "else", "if", "forall", "oneof", "a-prototype"
+}
 
 
 class KMSyntaxGenerator:
