@@ -5,18 +5,17 @@ import re
 
 cyc_annot_label = rdflib.URIRef("http://sw.cyc.com/CycAnnotations_v1#label")
 TYPE_PREDICATE = rdflib.URIRef("http://sw.opencyc.org/2008/06/10/concept/Mx4rBVVEokNxEdaAAACgydogAg")  # URI of the problematic predicate
-
 STANDARD_PREDICATES = {
     rdflib.RDF.type: "instance-of",
     TYPE_PREDICATE: "instance-of",  # Treat <Mx4rBVVEokNxEdaAAACgydogAg> as rdf:type
     rdflib.RDFS.subClassOf: "superclasses",
     rdflib.RDFS.label: "label",
 }
-
 BUILT_IN_FRAMES = {
     "instance-of", "superclasses", "label", "Slot", "Class", "Thing", "has",
     "with", "a", "in", "where", "then", "else", "if", "forall", "oneof", "a-prototype"
 }
+
 
 class KMSyntaxGenerator:
     def __init__(self, graph, object_map):
@@ -71,18 +70,16 @@ class KMSyntaxGenerator:
     def individual_to_km(self, ind_uri):
         """Generate KM frame for an individual with multiple instance-of slots."""
         ind_name = self.get_resource_name(ind_uri)
-        # Collect classes from rdf:type and TYPE_PREDICATE
         classes = [
             self.get_resource_name(obj)
-            for pred in [rdflib.RDF.type, TYPE_PREDICATE]
+            for pred in [rdflib.RDFS.Resource, TYPE_PREDICATE]
             for obj in self.graph.objects(ind_uri, pred)
             if isinstance(obj, rdflib.URIRef) and obj != rdflib.OWL.NamedIndividual
         ]
-        # Collect other properties
         slots = {}
         for prop, obj in self.graph.predicate_objects(ind_uri):
             if prop in [rdflib.RDF.type, TYPE_PREDICATE]:
-                continue  # Handled above
+                continue
             prop_name = self.get_slot_name(prop)
             if isinstance(obj, rdflib.URIRef):
                 value = self.get_resource_name(obj)
@@ -90,10 +87,8 @@ class KMSyntaxGenerator:
                 value = json.dumps(str(obj))
             slots.setdefault(prop_name, []).append(value)
         expr = f"({ind_name} has"
-        # Add separate instance-of slots for each class
         for class_name in classes:
             expr += f" (instance-of ({class_name}))"
-        # Add other slots
         for slot, values in slots.items():
             expr += f" ({slot} ({' '.join(values)}))"
         expr += ")"
