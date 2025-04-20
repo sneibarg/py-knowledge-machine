@@ -1,300 +1,278 @@
-import os
-import logging
-import requests
-from functools import partial
-from multiprocessing import Pool, Manager, current_process
-from km_syntax import KMSyntaxGenerator
-from ontology_loader import load_ontology
-from utils import extract_labels_and_ids, extract_subject
+import rdflib
+from utils import rdf_to_krl_name
+import json
+import re
 
-# Constants for KM server
-KM_URL = "http://km-server-url"  # Replace with actual KM server URL
-FAIL_MODE = "some_mode"  # Replace with actual fail_mode
+cyc_annot_label = rdflib.URIRef("http://sw.cyc.com/CycAnnotations_v1#label")
+TYPE_PREDICATE = rdflib.URIRef("http://sw.opencyc.org/2008/06/10/concept/Mx4rBVVEokNxEdaAAACgydogAg")  # URI of the problematic predicate
 
+STANDARD_PREDICATES = {
+    rdflib.RDF.type: "instance-of",
+    TYPE_PREDICATE: "instance-of",  # Treat <Mx4rBVVEokNxEdaAAACgydogAg> as rdf:type
+    rdflib.RDFS.subClassOf: "superclasses",
+    rdflib.RDFS.label: "label",
+}
 
-def extract_assertions_from_log(log_file):
-    """
-    Extract KM assertions from a log file.
-    Returns a list of assertion strings.
-    """
-    assertions = []
-    try:
-        with open(log_file, 'r') as f:
-            for line in f:
-                if "Generated: " in line and " | Result:" in line:
-                    start = line.index("Generated: ") + len("Generated: ")
-                    end = line.index(" | Result:")
-                    assertion = line[start:end].strip()
-                    assertions.append(assertion)
-    except FileNotFoundError:
-        print(f"Warning: Log file {log_file} not found.")
-    return assertions
+BUILT_IN_FRAMES = {
+    "instance-of", "superclasses", "label", "Slot", "Class", "Thing", "has",
+    "with", "a", "in", "where", "then", "else", "if", "forall", "oneof", "a-prototype"
+}
 
 
-def has_assertion_for_subject(all_subjects, subject):
-    """
-    Check if there is a subject in all_subjects that matches the given subject.
-    """
-    return subject in all_subjects
+class KMSyntaxGenerator:
+    def __init__(self, graph, object_map):
+        self.graph = graph
+        self.object_map = object_map
+        self.resource_names = self.build_resource_names()
+        self.predicate_names = self.build_predicate_names()
 
-
-def init_worker(opencyc, opencyc_map, log_files):
-    """
-    Initialize the KMSyntaxGenerator and logger in each worker process.
-    """
-    global km_generator, worker_logger, global_assertions
-    km_generator = KMSyntaxGenerator(opencyc, opencyc_map)
-
-    # Load assertions from log files within the worker
-    global_assertions = []
-    for log_file in log_files:
-        log_path = os.path.join("logs", log_file)
-        global_assertions.extend(extract_assertions_from_log(log_path))
-
-    # Set up logger with process name
-    process_name = current_process().name
-    log_file = f"logs/{process_name}.log"
-    worker_logger = logging.getLogger(process_name)
-    worker_logger.setLevel(logging.INFO)
-    handler = logging.FileHandler(log_file)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    handler.setFormatter(formatter)
-    worker_logger.addHandler(handler)
-
-
-def send_assertion(assertion, successfully_sent):
-    """
-    Send an assertion to the KM server and update shared memory if successful.
-    Returns True if sent successfully, False otherwise.
-    """
-    worker_logger.info(f"Sending assertion: {assertion[:100]}...")
-    payload = {"expr": assertion, "fail_mode": FAIL_MODE}
-    headers = {"Content-Type": "application/json"}
-    try:
-        # response = requests.post(KM_URL, json=payload, headers=headers)
-        # if response.status_code == 200:
-        response = None
-        if response is None:
-            subject = extract_subject(assertion)
-            if subject:
-                successfully_sent[subject] = assertion
-                worker_logger.info(f"Successfully sent assertion for subject '{subject}'.")
+    def build_resource_names(self):
+        """Map resource URIs to preferred names."""
+        names = {}
+        for s in self.graph.subjects():
+            labels = [str(o) for o in self.graph.objects(s, cyc_annot_label) if isinstance(o, rdflib.Literal)]
+            if labels:
+                preferred = next((l for l in labels if l[0].isupper()), labels[0])
+                names[s] = preferred
             else:
-                worker_logger.warning("No subject extracted from assertion.")
-            return True
-        else:
-            worker_logger.warning(f"Failed to send assertion: Status {response.status_code}")
-            return False
-    except Exception as e:
-        worker_logger.error(f"Error sending assertion: {str(e)}")
-        return False
+                if s in self.object_map and self.object_map[s].get('label'):
+                    names[s] = self.object_map[s]['label']
+                else:
+                    names[s] = rdf_to_krl_name(s)
+        return names
 
-
-def process_assertion(index, assertion, successfully_sent, all_subjects):
-    """
-    Process a single assertion, sending its dependencies first if not in shared memory.
-    Returns (index, result_dict) for ordered output.
-    """
-    worker_logger.info(f"Processing assertion {index}: {assertion[:100]}...")
-    try:
-        # Get prerequisites
-        prerequisites = km_generator.get_prerequisite_assertions(assertion)
-        worker_logger.info(f"Found {len(prerequisites)} prerequisites.")
-
-        # Ensure all prerequisites are sent
-        for prereq in prerequisites:
-            prereq_subject = extract_subject(prereq)
-            if not prereq_subject:
-                worker_logger.warning(f"Could not extract subject from prerequisite: {prereq}")
+    def build_predicate_names(self):
+        """Map predicate URIs to slot names, ensuring uniqueness for non-standard predicates."""
+        names = STANDARD_PREDICATES.copy()
+        used_names = set(names.values())
+        for pred in self.graph.predicates():
+            if pred in names:
                 continue
-            if prereq_subject in successfully_sent:
-                worker_logger.info(f"Prerequisite '{prereq_subject}' already sent.")
-                continue
-            if prereq_subject not in all_subjects:
-                worker_logger.warning(f"Prerequisite subject '{prereq_subject}' not found in assertions.")
-                continue
-
-            # Find the assertion for this prerequisite subject
-            prereq_assertion = next((a for a in global_assertions if extract_subject(a) == prereq_subject), None)
-            if not prereq_assertion:
-                worker_logger.error(f"No assertion found for prerequisite subject '{prereq_subject}'.")
-                continue
-
-            # Recursively ensure prerequisite's dependencies are sent
-            prereq_prerequisites = km_generator.get_prerequisite_assertions(prereq_assertion)
-            for sub_prereq in prereq_prerequisites:
-                sub_prereq_subject = extract_subject(sub_prereq)
-                if sub_prereq_subject and sub_prereq_subject not in successfully_sent and sub_prereq_subject in all_subjects:
-                    sub_prereq_assertion = next(
-                        (a for a in global_assertions if extract_subject(a) == sub_prereq_subject), None)
-                    if sub_prereq_assertion:
-                        worker_logger.info(f"Sending sub-prerequisite '{sub_prereq_subject}'.")
-                        if send_assertion(sub_prereq_assertion, successfully_sent):
-                            worker_logger.info(f"Sub-prerequisite '{sub_prereq_subject}' sent successfully.")
-                        else:
-                            worker_logger.error(f"Failed to send sub-prerequisite '{sub_prereq_subject}'.")
-
-            # Send the prerequisite
-            worker_logger.info(f"Sending prerequisite '{prereq_subject}'.")
-            if send_assertion(prereq_assertion, successfully_sent):
-                worker_logger.info(f"Prerequisite '{prereq_subject}' sent successfully.")
+            if pred in self.object_map and self.object_map[pred].get('label'):
+                base_name = self.object_map[pred]['label']
             else:
-                worker_logger.error(f"Failed to send prerequisite '{prereq_subject}'.")
+                base_name = rdf_to_krl_name(pred)
+            name = base_name
+            i = 1
+            while name in used_names:
+                name = f"{base_name}_{i}"
+                i += 1
+            names[pred] = name
+            used_names.add(name)
+        return names
 
-        # Send the main assertion
-        if send_assertion(assertion, successfully_sent):
-            return index, {"assertion": assertion[:100] + "...", "status": "success"}
+    def get_resource_name(self, resource):
+        """Get the preferred name for a resource."""
+        return self.resource_names.get(resource, rdf_to_krl_name(resource))
+
+    def get_slot_name(self, predicate):
+        """Get the slot name for a predicate."""
+        return self.predicate_names.get(predicate, rdf_to_krl_name(predicate))
+
+    def individual_to_km(self, ind_uri):
+        """Generate KM frame for an individual with multiple instance-of slots."""
+        ind_name = self.get_resource_name(ind_uri)
+        # Collect classes from rdf:type and TYPE_PREDICATE
+        classes = [
+            self.get_resource_name(obj)
+            for pred in [rdflib.RDF.type, TYPE_PREDICATE]
+            for obj in self.graph.objects(ind_uri, pred)
+            if isinstance(obj, rdflib.URIRef) and obj != rdflib.OWL.NamedIndividual
+        ]
+        # Collect other properties
+        slots = {}
+        for prop, obj in self.graph.predicate_objects(ind_uri):
+            if prop in [rdflib.RDF.type, TYPE_PREDICATE]:
+                continue  # Handled above
+            prop_name = self.get_slot_name(prop)
+            if isinstance(obj, rdflib.URIRef):
+                value = self.get_resource_name(obj)
+            else:
+                value = json.dumps(str(obj))
+            slots.setdefault(prop_name, []).append(value)
+        expr = f"({ind_name} has"
+        # Add separate instance-of slots for each class
+        for class_name in classes:
+            expr += f" (instance-of ({class_name}))"
+        # Add other slots
+        for slot, values in slots.items():
+            expr += f" ({slot} ({' '.join(values)}))"
+        expr += ")"
+        return expr
+
+    def get_prerequisite_assertions(self, assertion):
+        """Return a list of prerequisite assertions for the given KM assertion using pattern matching."""
+        clean_assertion = re.sub(r'"[^"]*"', '', assertion)
+        symbols = re.findall(r'[-\w]+', clean_assertion)
+        subject = symbols[0] if symbols else None
+        referenced_frames = set(
+            sym for sym in symbols
+            if sym != subject and sym not in BUILT_IN_FRAMES
+        )
+        name_to_uri = {name: uri for uri, name in self.resource_names.items()}
+        prerequisites = []
+        for frame_name in referenced_frames:
+            if frame_name in name_to_uri:
+                uri = name_to_uri[frame_name]
+                if (uri, rdflib.RDF.type, rdflib.OWL.Class) in self.graph:
+                    prerequisites.append(self.class_to_km(uri))
+                elif (uri, rdflib.RDF.type, rdflib.OWL.ObjectProperty) in self.graph:
+                    prerequisites.append(self.property_to_km(uri))
+                else:
+                    prerequisites.append(self.individual_to_km(uri))
+        return prerequisites
+
+    def class_to_km(self, class_uri):
+        """Convert an OWL class to KM syntax."""
+        frame_name = self.get_resource_name(class_uri)
+        slots = {}
+        for pred, obj in self.graph.predicate_objects(class_uri):
+            slot_name = self.get_slot_name(pred)
+            if isinstance(obj, rdflib.URIRef):
+                value = self.get_resource_name(obj)
+            else:
+                value = json.dumps(str(obj))
+            slots.setdefault(slot_name, []).append(value)
+        expr = f"({frame_name} has"
+        for slot, values in slots.items():
+            expr += f" ({slot} ({' '.join(values)}))"
+        expr += ")"
+        return expr
+
+    def property_to_km(self, prop_uri):
+        """Generate a KM frame for an OWL ObjectProperty."""
+        prop_name = self.get_resource_name(prop_uri)
+        labels = [json.dumps(str(label)) for label in self.graph.objects(prop_uri, rdflib.RDFS.label)]
+        domains = [self.get_resource_name(d) for d in self.graph.objects(prop_uri, rdflib.RDFS.domain)]
+        ranges = [self.get_resource_name(r) for r in self.graph.objects(prop_uri, rdflib.RDFS.range)]
+        superslots = [self.get_resource_name(sp) for sp in self.graph.objects(prop_uri, rdflib.RDFS.subPropertyOf)]
+        inverses = [self.get_resource_name(i) for i in self.graph.objects(prop_uri, rdflib.OWL.inverseOf)]
+        expr = f"({prop_name} has (instance-of (Slot))"
+        if labels:
+            expr += f" (label ({' '.join(labels)}))"
+        if domains:
+            expr += f" (domain ({' '.join(domains)}))"
+        if ranges:
+            expr += f" (range ({' '.join(ranges)}))"
+        if superslots:
+            expr += f" (superslots ({' '.join(superslots)}))"
+        if inverses:
+            expr += f" (inverse ({' '.join(inverses)}))"
+        expr += ")"
+        return expr
+
+    @staticmethod
+    def aggregate_to_km(element_type, number_of_elements=None):
+        """Generate an Aggregate frame (Section 29.6)."""
+        expr = "(a Aggregate with"
+        expr += f" (element-type ({element_type}))"
+        if number_of_elements:
+            expr += f" (number-of-elements ({number_of_elements}))"
+        expr += ")"
+        return expr
+
+    @staticmethod
+    def quoted_expression(expr):
+        """Generate a quoted expression (Section 29.6)."""
+        return f"'{expr}"
+
+    @staticmethod
+    def forall_expression(var, collection, body, where=None):
+        """Generate a forall expression (Section 29)."""
+        expr = f"(forall {var} in {collection}"
+        if where:
+            expr += f" where {where}"
+        expr += f" {body})"
+        return expr
+
+    @staticmethod
+    def _join_expressions(expressions):
+        """Join a list of expressions into a space-separated string."""
+        return ' '.join(str(expr) for expr in expressions)
+
+    def arithmetic_expression(self, operator, *operands):
+        """Generate an arithmetic expression, e.g., (+ 1 2)."""
+        return f"({operator} {self._join_expressions(operands)})"
+
+    def logical_expression(self, operator, *operands):
+        """Generate a logical expression, e.g., (and A B)."""
+        return f"({operator} {self._join_expressions(operands)})"
+
+    @staticmethod
+    def unification_expression(type_, expr1, expr2):
+        """Generate a unification expression based on type (set, eager, bag)."""
+        if type_ == "set":
+            return f"(({expr1}) && ({expr2}))"
+        elif type_ == "eager":
+            return f"({expr1} &! {expr2})"
+        elif type_ == "bag":
+            return f"(({expr1}) || ({expr2}))"
         else:
-            return index, {"assertion": assertion[:100] + "...", "status": "failed"}
-    except Exception as e:
-        worker_logger.error(f"Error processing assertion {index}: {str(e)}")
-        return index, {"assertion": assertion[:100] + "...", "status": "error", "error": str(e)}
+            raise ValueError(f"Unknown unification type: {type_}")
 
+    @staticmethod
+    def if_expression(condition, then_expr, else_expr=None):
+        """Generate an if-then-else expression."""
+        expr = f"(if {condition} then {then_expr}"
+        if else_expr:
+            expr += f" else {else_expr}"
+        expr += ")"
+        return expr
 
-def get_all_assertions(logs):
-    """
-    Collect all assertions and their subjects from log files.
-    """
-    all_assertions = []
-    all_subjects = set()
-    for log_file in logs:
-        log = os.path.join("logs", log_file)
-        print(f"Loading assertions for {log}")
-        assertions = extract_assertions_from_log(log)
-        all_assertions.extend(assertions)
-        for assertion in assertions:
-            subject = extract_subject(assertion)
-            if subject:
-                all_subjects.add(subject)
-    if not all_assertions:
-        print("No assertions found in log files. Process aborted.")
-        return None, None
-    return all_assertions, all_subjects
+    @staticmethod
+    def user_defined_infix(operator, left, right):
+        """Generate a user-defined infix operator expression."""
+        return f"({left} {operator} {right})"
 
+    def oneof_expression(self, *options):
+        """Generate a oneof expression."""
+        return f"(oneof {self._join_expressions(options)})"
 
-def test_prerequisite_assertions(data, opencyc_graph, ontology_map, num_cpus):
-    """
-    Test the get_prerequisite_assertions function using assertions from log files,
-    distributing the workload across specified CPUs.
-    """
-    assertions, subjects = data
-    if assertions is None:
-        return
-    manager = Manager()
-    log_dict = manager.dict()
-    pool = Pool(processes=num_cpus, initializer=init_worker, initargs=(opencyc_graph, ontology_map, log_files))
-    test_func = partial(test_single_assertion, (subjects, log_dict))
-    results = pool.starmap(test_func, [(i, assertion) for i, assertion in enumerate(assertions, 1)])
-    pool.close()
-    pool.join()
-    results.sort(key=lambda x: x[0])
-    total_missing = 0
-    for index, result in results:
-        for key in sorted(log_dict.keys()):
-            if key.startswith(f"Testing {index}") or key.startswith(f"Prereqs {index}") or \
-                    key.startswith(f"Warning {index}") or key.startswith(f"Check {index}") or \
-                    key.startswith(f"Summary {index}") or key.startswith(f"Error {index}"):
-                print(log_dict[key])
-        if "error" in result:
-            total_missing += 1
-        elif not result["all_prereqs_found"]:
-            total_missing += len(result["missing_prereqs"])
-    print(f"\nTest completed. Total assertions with missing prerequisites: {total_missing}")
+    def prototype_to_km(self, class_name, slots=None):
+        """Generate a prototype expression."""
+        expr = f"(a-prototype {class_name}"
+        if slots:
+            expr += f" with {self._join_expressions(slots)}"
+        expr += ")"
+        return expr
 
+    def aggregation_function(self, func_name, *args):
+        """Generate a user-defined aggregation function expression."""
+        return f"({func_name} {self._join_expressions(args)})"
 
-def send_assertions_with_dependencies(all_assertions, opencyc_graph, ontology_map, num_cpus):
-    """
-    Send assertions to KM server, with each process ensuring dependencies are sent first.
-    """
-    if not all_assertions:
-        print("No assertions to send.")
-        return
-    manager = Manager()
-    successfully_sent = manager.dict()  # Shared memory: {subject: assertion}
-    all_subjects = set(extract_subject(a) for a in all_assertions if extract_subject(a))
+    def get_prerequisite_assertions(self, assertion):
+        """Return a list of prerequisite assertions for the given KM assertion using pattern matching.
 
-    # Create logs directory if it doesn't exist
-    if not os.path.exists("logs"):
-        os.makedirs("logs")
+        Args:
+            assertion (str): A KM code string, e.g., '(fido has (instance-of (Dog)) (color ("brown")))'.
 
-    # Process assertions in parallel
-    with Pool(processes=num_cpus, initializer=init_worker, initargs=(opencyc_graph, ontology_map, log_files)) as pool:
-        results = pool.starmap(
-            partial(process_assertion, successfully_sent=successfully_sent, all_subjects=all_subjects),
-            [(i, assertion) for i, assertion in enumerate(all_assertions, 1)]
+        Returns:
+            list[str]: A list of KM code strings representing the prerequisite assertions.
+        """
+        import re
+
+        clean_assertion = re.sub(r'"[^"]*"', '', assertion)
+        symbols = re.findall(r'[-\w]+', clean_assertion)
+        subject = symbols[0] if symbols else None
+        referenced_frames = set(
+            sym for sym in symbols
+            if sym != subject and sym not in BUILT_IN_FRAMES
         )
 
-    # Process results
-    results.sort(key=lambda x: x[0])  # Sort for ordered output
-    successes = 0
-    for index, result in results:
-        print(f"Assertion {index}: {result['assertion']}")
-        if result["status"] == "success":
-            print("  Successfully sent.")
-            successes += 1
-        elif result["status"] == "failed":
-            print("  Failed to send.")
-        else:
-            print(f"  Error: {result['error']}")
+        name_to_uri = {name: uri for uri, name in self.resource_names.items()}
+        prerequisites = []
+        for frame_name in referenced_frames:
+            if frame_name in name_to_uri:
+                uri = name_to_uri[frame_name]
 
-    print(f"\nSending completed. Successfully sent {successes} out of {len(all_assertions)} assertions.")
-    # Save successfully sent assertions to file
-    with open("successfully_sent_assertions.txt", "w") as f:
-        for assertion in successfully_sent.values():
-            f.write(assertion + "\n")
-    return successfully_sent
+                if (uri, rdflib.RDF.type, rdflib.OWL.Class) in self.graph:
+                    prerequisites.append(self.class_to_km(uri))
+                elif (uri, rdflib.RDF.type, rdflib.OWL.ObjectProperty) in self.graph:
+                    prerequisites.append(self.property_to_km(uri))
+                else:
+                    classes = list(self.graph.objects(uri, rdflib.RDF.type))
+                    if classes:
+                        class_uri = classes[0]
+                        prerequisites.append(self.individual_to_km(class_uri))
 
-
-def test_single_assertion(args, index, assertion):
-    """
-    Test a single assertion and return the result.
-    """
-    all_subjects, log_dict = args
-    try:
-        worker_logger.info(f"Testing assertion {index}: {assertion[:100]}...")
-        prerequisites = km_generator.get_prerequisite_assertions(assertion)
-        log_dict[f"Prereqs {index}"] = f"  Found {len(prerequisites)} prerequisites."
-        all_prereqs_found = True
-        missing_prereqs = []
-        for prereq in prerequisites:
-            subject = extract_subject(prereq)
-            if subject is None:
-                log_dict[f"Warning {index}"] = f"  Warning: Could not extract subject from prerequisite: {prereq}"
-                all_prereqs_found = False
-                continue
-            if has_assertion_for_subject(all_subjects, subject):
-                log_dict[
-                    f"Check {index} {subject}"] = f"  ✓ Prerequisite subject '{subject}' has a corresponding assertion."
-            else:
-                log_dict[f"Check {index} {subject}"] = f"  ✗ Missing assertion for prerequisite subject '{subject}'."
-                all_prereqs_found = False
-                missing_prereqs.append(subject)
-        status = "All prerequisites verified successfully." if all_prereqs_found else "Some prerequisites could not be verified."
-        log_dict[f"Summary {index}"] = f"  {status}"
-        return index, {
-            "assertion": assertion[:100] + "...",
-            "prerequisites_found": len(prerequisites),
-            "all_prereqs_found": all_prereqs_found,
-            "missing_prereqs": missing_prereqs
-        }
-    except Exception as e:
-        log_dict[f"Error {index}"] = f"  Error processing assertion {index}: {str(e)}"
-        return index, {
-            "assertion": assertion[:100] + "...",
-            "error": str(e)
-        }
-
-
-if __name__ == "__main__":
-    num_processes = int(os.cpu_count() / 2)
-    log_files = [
-        "property_batch_0_20250411_225935.log",
-        "class_batch_0_20250411_225935.log",
-        "individual_batch_0_20250411_225935.log"
-    ]
-    graph = load_ontology()
-    object_map = extract_labels_and_ids(graph)
-    all_assertions, all_subjects = get_all_assertions(log_files)
-    if all_assertions:
-        test_prerequisite_assertions((all_assertions, all_subjects), graph, object_map, num_processes)
-        send_assertions_with_dependencies(all_assertions, graph, object_map, num_processes)
+        return prerequisites
