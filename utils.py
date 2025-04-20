@@ -42,3 +42,18 @@ def extract_labels_and_ids(graph):
             }
 
     return result
+
+
+def extract_subject(assertion):
+    """
+    Extract the subject frame from a KM assertion.
+    E.g., from '((fn a b) has ...)' returns '(fn a b)'.
+    """
+    has_index = assertion.find('has')
+    if has_index == -1:
+        return None
+    open_paren_index = assertion.find('(')
+    if open_paren_index == -1 or open_paren_index > has_index:
+        return None
+    subject = assertion[open_paren_index + 1:has_index].strip()
+    return subject

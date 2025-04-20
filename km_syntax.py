@@ -1,12 +1,18 @@
 import rdflib
-from utils import rdf_to_krl_name
 import json
+import re
+from utils import rdf_to_krl_name
 
 cyc_annot_label = rdflib.URIRef("http://sw.cyc.com/CycAnnotations_v1#label")
 STANDARD_PREDICATES = {
     rdflib.RDF.type: "instance-of",
     rdflib.RDFS.subClassOf: "superclasses",
     rdflib.RDFS.label: "label",
+}
+
+BUILT_IN_FRAMES = {
+    "instance-of", "superclasses", "label", "Slot", "Class", "Thing", "has",
+    "with", "a", "in", "where", "then", "else", "if", "forall", "oneof", "a-prototype"
 }
 
 
@@ -33,14 +39,23 @@ class KMSyntaxGenerator:
         return names
 
     def build_predicate_names(self):
-        """Map predicate URIs to slot names."""
+        """Map predicate URIs to unique slot names."""
         names = STANDARD_PREDICATES.copy()
+        used_names = set(names.values())
         for pred in self.graph.predicates():
-            if pred not in names:
-                if pred in self.object_map and self.object_map[pred].get('label'):
-                    names[pred] = self.object_map[pred]['label']
-                else:
-                    names[pred] = rdf_to_krl_name(pred)
+            if pred in names:
+                continue
+            if pred in self.object_map and self.object_map[pred].get('label'):
+                base_name = self.object_map[pred]['label']
+            else:
+                base_name = rdf_to_krl_name(pred)
+            name = base_name
+            i = 1
+            while name in used_names:
+                name = f"{base_name}_{i}"
+                i += 1
+            names[pred] = name
+            used_names.add(name)
         return names
 
     def get_resource_name(self, resource):
@@ -51,10 +66,61 @@ class KMSyntaxGenerator:
         """Get the slot name for a predicate."""
         return self.predicate_names.get(predicate, rdf_to_krl_name(predicate))
 
+    def individual_to_km(self, ind_uri):
+        """Generate KM frame for an individual."""
+        ind_name = self.get_resource_name(ind_uri)
+        # Collect unique classes from rdf:type
+        classes = [
+            self.get_resource_name(obj)
+            for obj in self.graph.objects(ind_uri, rdflib.RDF.type)
+            if isinstance(obj, rdflib.URIRef) and obj != rdflib.OWL.NamedIndividual
+        ]
+        unique_classes = list(dict.fromkeys(classes))  # Preserve order, remove duplicates
+        # Collect other properties into slots
+        slots = {}
+        for prop, obj in self.graph.predicate_objects(ind_uri):
+            if prop == rdflib.RDF.type:
+                continue  # Handled above
+            prop_name = self.get_slot_name(prop)
+            if isinstance(obj, rdflib.URIRef):
+                value = self.get_resource_name(obj)
+            else:
+                value = json.dumps(str(obj))
+            slots.setdefault(prop_name, []).append(value)
+        expr = f"({ind_name} has"
+        if unique_classes:
+            expr += f" (instance-of ({' '.join(unique_classes)}))"
+        for slot, values in slots.items():
+            expr += f" ({slot} ({' '.join(values)}))"
+        expr += ")"
+        return expr
+
+    def get_prerequisite_assertions(self, assertion):
+        """Return a list of prerequisite assertions for the given KM assertion using pattern matching."""
+        clean_assertion = re.sub(r'"[^"]*"', '', assertion)
+        symbols = re.findall(r'[-\w]+', clean_assertion)
+        subject = symbols[0] if symbols else None
+        referenced_frames = set(
+            sym for sym in symbols
+            if sym != subject and sym not in BUILT_IN_FRAMES
+        )
+        name_to_uri = {name: uri for uri, name in self.resource_names.items()}
+        prerequisites = []
+        for frame_name in referenced_frames:
+            if frame_name in name_to_uri:
+                uri = name_to_uri[frame_name]
+                if (uri, rdflib.RDF.type, rdflib.OWL.Class) in self.graph:
+                    prerequisites.append(self.class_to_km(uri))
+                elif (uri, rdflib.RDF.type, rdflib.OWL.ObjectProperty) in self.graph:
+                    prerequisites.append(self.property_to_km(uri))
+                else:
+                    # Assume individual, generate full KM frame
+                    prerequisites.append(self.individual_to_km(uri))
+        return prerequisites
+
     def class_to_km(self, class_uri):
         """Convert an OWL class to KM syntax."""
         frame_name = self.get_resource_name(class_uri)
-        rdf_id = str(class_uri)
         slots = {}
         for pred, obj in self.graph.predicate_objects(class_uri):
             slot_name = self.get_slot_name(pred)
@@ -63,27 +129,31 @@ class KMSyntaxGenerator:
             else:
                 value = json.dumps(str(obj))
             slots.setdefault(slot_name, []).append(value)
-        expr = f"({frame_name} has (rdfId (\"{rdf_id}\"))"
+        expr = f"({frame_name} has"
         for slot, values in slots.items():
             expr += f" ({slot} ({' '.join(values)}))"
         expr += ")"
         return expr
 
-    def individual_to_km(self, ind_uri, class_uri):
-        """Generate KM frame for an individual."""
-        ind_name = self.get_resource_name(ind_uri)
-        class_name = self.get_resource_name(class_uri)
-        slots = []
-        for prop, obj in self.graph.predicate_objects(ind_uri):
-            prop_name = self.get_slot_name(prop)
-            if isinstance(obj, rdflib.URIRef):
-                obj_name = self.get_resource_name(obj)
-                slots.append(f"({prop_name} ({obj_name}))")
-            else:
-                slots.append(f"({prop_name} ({json.dumps(str(obj))}))")
-        expr = f"({ind_name} has (instance-of ({class_name}))"
-        if slots:
-            expr += f" {' '.join(slots)}"
+    def property_to_km(self, prop_uri):
+        """Generate a KM frame for an OWL ObjectProperty."""
+        prop_name = self.get_resource_name(prop_uri)
+        labels = [json.dumps(str(label)) for label in self.graph.objects(prop_uri, rdflib.RDFS.label)]
+        domains = [self.get_resource_name(d) for d in self.graph.objects(prop_uri, rdflib.RDFS.domain)]
+        ranges = [self.get_resource_name(r) for r in self.graph.objects(prop_uri, rdflib.RDFS.range)]
+        superslots = [self.get_resource_name(sp) for sp in self.graph.objects(prop_uri, rdflib.RDFS.subPropertyOf)]
+        inverses = [self.get_resource_name(i) for i in self.graph.objects(prop_uri, rdflib.OWL.inverseOf)]
+        expr = f"({prop_name} has (instance-of (Slot))"
+        if labels:
+            expr += f" (label ({' '.join(labels)}))"
+        if domains:
+            expr += f" (domain ({' '.join(domains)}))"
+        if ranges:
+            expr += f" (range ({' '.join(ranges)}))"
+        if superslots:
+            expr += f" (superslots ({' '.join(superslots)}))"
+        if inverses:
+            expr += f" (inverse ({' '.join(inverses)}))"
         expr += ")"
         return expr
 
@@ -212,3 +282,40 @@ class KMSyntaxGenerator:
     def aggregation_function(self, func_name, *args):
         """Generate a user-defined aggregation function expression."""
         return f"({func_name} {self._join_expressions(args)})"
+
+    def get_prerequisite_assertions(self, assertion):
+        """Return a list of prerequisite assertions for the given KM assertion using pattern matching.
+
+        Args:
+            assertion (str): A KM code string, e.g., '(fido has (instance-of (Dog)) (color ("brown")))'.
+
+        Returns:
+            list[str]: A list of KM code strings representing the prerequisite assertions.
+        """
+        import re
+
+        clean_assertion = re.sub(r'"[^"]*"', '', assertion)
+        symbols = re.findall(r'[-\w]+', clean_assertion)
+        subject = symbols[0] if symbols else None
+        referenced_frames = set(
+            sym for sym in symbols
+            if sym != subject and sym not in BUILT_IN_FRAMES
+        )
+
+        name_to_uri = {name: uri for uri, name in self.resource_names.items()}
+        prerequisites = []
+        for frame_name in referenced_frames:
+            if frame_name in name_to_uri:
+                uri = name_to_uri[frame_name]
+
+                if (uri, rdflib.RDF.type, rdflib.OWL.Class) in self.graph:
+                    prerequisites.append(self.class_to_km(uri))
+                elif (uri, rdflib.RDF.type, rdflib.OWL.ObjectProperty) in self.graph:
+                    prerequisites.append(self.property_to_km(uri))
+                else:
+                    classes = list(self.graph.objects(uri, rdflib.RDF.type))
+                    if classes:
+                        class_uri = classes[0]
+                        prerequisites.append(self.individual_to_km(class_uri))
+
+        return prerequisites
