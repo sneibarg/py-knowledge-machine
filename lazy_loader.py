@@ -93,7 +93,7 @@ def process_assertion(index, assertion, successfully_sent, all_subjects):
     Process a single assertion, sending its dependencies first if not in shared memory.
     Returns (index, result_dict) for ordered output.
     """
-    worker_logger.info(f"Processing assertion {index}: {assertion[:100]}...")
+    worker_logger.info(f"Processing assertion {index}: {assertion}...")
     try:
         # Get prerequisites
         prerequisites = km_generator.get_prerequisite_assertions(assertion)
@@ -284,7 +284,7 @@ def test_single_assertion(args, index, assertion):
 
 
 if __name__ == "__main__":
-    num_processes = int(os.cpu_count() / 2)
+    num_processes = int(os.cpu_count() - 2)
     log_files = [
         "property_batch_0_20250411_225935.log",
         "class_batch_0_20250411_225935.log",
