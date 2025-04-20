@@ -1,6 +1,8 @@
 import rdflib
-from utils import rdf_to_krl_name
 import json
+import re
+from utils import rdf_to_krl_name
+
 
 cyc_annot_label = rdflib.URIRef("http://sw.cyc.com/CycAnnotations_v1#label")
 TYPE_PREDICATES = [
@@ -78,7 +80,7 @@ class KMSyntaxGenerator:
 
         expr = f"({ind_name} has"
         for slot, values in slots.items():
-            unique_values = list(dict.fromkeys(values))  # Remove duplicates
+            unique_values = list(dict.fromkeys(values))
             expr += f" ({slot} ({' '.join(unique_values)}))"
         expr += ")"
         return expr
@@ -281,16 +283,13 @@ class KMSyntaxGenerator:
             expr = self.property_to_km(uri)
         elif type == "individual":
             ind_uri, class_uri = uri
-            expr = self.individual_to_km(ind_uri, class_uri)
+            expr = self.individual_to_km(ind_uri)
         else:
             raise ValueError(f"Unknown type: {type}")
 
-        # Extract referenced frames from the KM expression
-        clean_assertion = re.sub(r'"[^"]*"', '', expr)  # Remove quoted strings
-        symbols = re.findall(r'[-\w]+', clean_assertion)  # Extract words
+        clean_assertion = re.sub(r'"[^"]*"', '', expr)
+        symbols = re.findall(r'[-\w]+', clean_assertion)
         referenced_frames = set(sym for sym in symbols if sym not in BUILT_IN_FRAMES)
-
-        # Map frame names to URIs
         name_to_uri = {name: u for u, name in self.resource_names.items()}
         referenced_uris = [name_to_uri[frame_name] for frame_name in referenced_frames if frame_name in name_to_uri]
 
