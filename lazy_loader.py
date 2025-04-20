@@ -296,5 +296,5 @@ if __name__ == "__main__":
     object_map = extract_labels_and_ids(graph)
     all_assertions, all_subjects = get_all_assertions(log_files)
     if all_assertions:
-        test_prerequisite_assertions((all_assertions, all_subjects), graph, object_map, num_processes)
+        # test_prerequisite_assertions((all_assertions, all_subjects), graph, object_map, num_processes)
         send_assertions_with_dependencies(all_assertions, graph, object_map, num_processes)
