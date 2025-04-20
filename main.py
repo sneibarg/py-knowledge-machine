@@ -1,7 +1,6 @@
 import argparse
 import os
 import rdflib
-import sexpdata
 from datetime import datetime
 from multiprocessing import Pool, cpu_count, Manager
 from config import FIXED_OWL_FILE
@@ -72,7 +71,7 @@ class OWLGraphProcessor:
             expr = self.km_generator.property_to_km(uri)
         elif type == "individual":
             ind_uri, class_uri = uri
-            expr = self.km_generator.individual_to_km(ind_uri, class_uri)
+            expr = self.km_generator.individual_to_km(ind_uri)
         else:
             raise ValueError(f"Unknown type: {type}")
         result = send_to_km(expr, dry_run=self.args.dry_run)
@@ -178,4 +177,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
