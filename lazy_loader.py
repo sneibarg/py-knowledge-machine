@@ -1,13 +1,11 @@
 import os
 import logging
-import requests
 from functools import partial
 from multiprocessing import Pool, Manager, current_process
 from km_syntax import KMSyntaxGenerator
 from ontology_loader import load_ontology
 from utils import extract_labels_and_ids, extract_subject
 
-# Constants for KM server
 KM_URL = "http://km-server-url"  # Replace with actual KM server URL
 FAIL_MODE = "some_mode"  # Replace with actual fail_mode
 
@@ -44,14 +42,10 @@ def init_worker(opencyc, opencyc_map, log_files):
     """
     global km_generator, worker_logger, global_assertions
     km_generator = KMSyntaxGenerator(opencyc, opencyc_map)
-
-    # Load assertions from log files within the worker
     global_assertions = []
     for log_file in log_files:
         log_path = os.path.join("logs", log_file)
         global_assertions.extend(extract_assertions_from_log(log_path))
-
-    # Set up logger with process name
     process_name = current_process().name
     log_file = f"logs/{process_name}.log"
     worker_logger = logging.getLogger(process_name)
@@ -97,11 +91,10 @@ def process_assertion(index, assertion, successfully_sent, all_subjects):
     """
     worker_logger.info(f"Processing assertion {index}: {assertion}...")
     try:
-        # Get prerequisites
+
         prerequisites = km_generator.get_prerequisite_assertions(assertion)
         worker_logger.info(f"Found {len(prerequisites)} prerequisites.")
 
-        # Ensure all prerequisites are sent
         for prereq in prerequisites:
             prereq_subject = extract_subject(prereq)
             if not prereq_subject:
@@ -114,13 +107,11 @@ def process_assertion(index, assertion, successfully_sent, all_subjects):
                 worker_logger.warning(f"Prerequisite subject '{prereq_subject}' not found in assertions.")
                 continue
 
-            # Find the assertion for this prerequisite subject
             prereq_assertion = next((a for a in global_assertions if extract_subject(a) == prereq_subject), None)
             if not prereq_assertion:
                 worker_logger.error(f"No assertion found for prerequisite subject '{prereq_subject}'.")
                 continue
 
-            # Recursively ensure prerequisite's dependencies are sent
             prereq_prerequisites = km_generator.get_prerequisite_assertions(prereq_assertion)
             for sub_prereq in prereq_prerequisites:
                 sub_prereq_subject = extract_subject(sub_prereq)
@@ -134,14 +125,12 @@ def process_assertion(index, assertion, successfully_sent, all_subjects):
                         else:
                             worker_logger.error(f"Failed to send sub-prerequisite '{sub_prereq_subject}'.")
 
-            # Send the prerequisite
             worker_logger.info(f"Sending prerequisite '{prereq_subject}'.")
             if send_assertion(prereq_assertion, successfully_sent):
                 worker_logger.info(f"Prerequisite '{prereq_subject}' sent successfully.")
             else:
                 worker_logger.error(f"Failed to send prerequisite '{prereq_subject}'.")
 
-        # Send the main assertion
         if send_assertion(assertion, successfully_sent):
             return index, {"assertion": assertion[:100] + "...", "status": "success"}
         else:
@@ -217,14 +206,12 @@ def send_assertions_with_dependencies(all_assertions, opencyc_graph, ontology_ma
     if not os.path.exists("logs"):
         os.makedirs("logs")
 
-    # Process assertions in parallel
     with Pool(processes=num_cpus, initializer=init_worker, initargs=(opencyc_graph, ontology_map, log_files)) as pool:
         results = pool.starmap(
             partial(process_assertion, successfully_sent=successfully_sent, all_subjects=all_subjects),
             [(i, assertion) for i, assertion in enumerate(all_assertions, 1)]
         )
 
-    # Process results
     results.sort(key=lambda x: x[0])  # Sort for ordered output
     successes = 0
     for index, result in results:
@@ -238,7 +225,6 @@ def send_assertions_with_dependencies(all_assertions, opencyc_graph, ontology_ma
             print(f"  Error: {result['error']}")
 
     print(f"\nSending completed. Successfully sent {successes} out of {len(all_assertions)} assertions.")
-    # Save successfully sent assertions to file
     with open("successfully_sent_assertions.txt", "w") as f:
         for assertion in successfully_sent.values():
             f.write(assertion + "\n")

@@ -259,3 +259,53 @@ class KMSyntaxGenerator:
                         prerequisites.append(self.individual_to_km(class_uri))
 
         return prerequisites
+
+    def get_uri_type(self, uri):
+        """Determine the type of a URI (class, property, or individual)."""
+        if (uri, rdflib.RDF.type, rdflib.OWL.Class) in self.graph:
+            return "class"
+        elif (uri, rdflib.RDF.type, rdflib.OWL.ObjectProperty) in self.graph:
+            return "property"
+        else:
+            types = list(self.graph.objects(uri, rdflib.RDF.type))
+            if types and any((t, rdflib.RDF.type, rdflib.OWL.Class) in self.graph for t in types):
+                return "individual"
+            return None
+
+    def get_referenced_assertions(self, assertion):
+        """Get the list of (type, uri) dependencies referenced in the KM expression for an assertion."""
+        type, uri = assertion
+        if type == "class":
+            expr = self.class_to_km(uri)
+        elif type == "property":
+            expr = self.property_to_km(uri)
+        elif type == "individual":
+            ind_uri, class_uri = uri
+            expr = self.individual_to_km(ind_uri, class_uri)
+        else:
+            raise ValueError(f"Unknown type: {type}")
+
+        # Extract referenced frames from the KM expression
+        clean_assertion = re.sub(r'"[^"]*"', '', expr)  # Remove quoted strings
+        symbols = re.findall(r'[-\w]+', clean_assertion)  # Extract words
+        referenced_frames = set(sym for sym in symbols if sym not in BUILT_IN_FRAMES)
+
+        # Map frame names to URIs
+        name_to_uri = {name: u for u, name in self.resource_names.items()}
+        referenced_uris = [name_to_uri[frame_name] for frame_name in referenced_frames if frame_name in name_to_uri]
+
+        # Determine the type of each referenced URI and create assertion tuples
+        ref_assertions = []
+        for ref_uri in referenced_uris:
+            ref_type = self.get_uri_type(ref_uri)
+            if ref_type == "class":
+                ref_assertions.append(("class", ref_uri))
+            elif ref_type == "property":
+                ref_assertions.append(("property", ref_uri))
+            elif ref_type == "individual":
+                # For individuals, include all (ind_uri, class_uri) pairs from the assertions
+                classes = [o for s, o in self.graph.subject_objects(rdflib.RDF.type)
+                           if s == ref_uri and (o, rdflib.RDF.type, rdflib.OWL.Class) in self.graph]
+                for class_uri in classes:
+                    ref_assertions.append(("individual", (ref_uri, class_uri)))
+        return ref_assertions
