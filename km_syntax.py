@@ -18,7 +18,6 @@ BUILT_IN_FRAMES = {
     "with", "a", "in", "where", "then", "else", "if", "forall", "oneof", "a-prototype"
 }
 
-
 class KMSyntaxGenerator:
     def __init__(self, graph, object_map):
         self.graph = graph
