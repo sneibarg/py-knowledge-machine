@@ -72,7 +72,6 @@ class OWLGraphProcessor:
         self.km_generator = KMSyntaxGenerator(graph, object_map)
         self.manager = Manager()
         self.successfully_sent = self.manager.dict()
-        self.pool = Pool(processes=num_workers)
         self.dependencies = self.compute_dependencies(parallel_deps, num_workers)
 
     def compute_dependencies(self, parallel_deps, num_workers):
