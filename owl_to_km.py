@@ -1,13 +1,14 @@
 import argparse
+import logging
 import os
 import sys
 import time
-from multiprocessing import Pool, cpu_count, Manager, current_process
-from functools import partial
 import rdflib
 from core import setup_logging, send_to_km, FIXED_OWL_FILE
 from km_syntax import KMSyntaxGenerator
 from ontology_loader import load_ontology
+from multiprocessing import Pool, cpu_count, Manager, current_process
+from functools import partial
 
 logger = None
 worker_logger = None
@@ -29,6 +30,7 @@ def init_worker(debug):
     """Initialize worker process with a logger."""
     global logger, worker_logger
     worker_logger = logger.getChild(f'Worker.{current_process().name}')
+    worker_logger.setLevel(logging.DEBUG if debug else logging.INFO)
     worker_logger.info("Initialized worker.")
 
 
