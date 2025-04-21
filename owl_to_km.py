@@ -17,9 +17,11 @@ def init_worker(debug):
     worker_logger.info("Initialized worker.")
 
 
-def translate_assertions(assertion_list, processor):
+def translate_assertions(assertion_list, km_generator):
+    translated_assertions = []
     for assertion_type, assertion in assertion_list:
-        translate_assertion(assertion, processor.km_generator)
+        translated_assertions.append(translate_assertion(assertion, km_generator))
+    return translated_assertions
 
 
 def translate_assertion(assertion, km_generator):
@@ -78,7 +80,7 @@ def extract_labels_and_ids(graph, logger):
 
 
 class OWLGraphProcessor:
-    def __init__(self, graph, object_map, assertions, args, num_workers, logger):
+    def __init__(self, km_generator, graph, object_map, assertions, args, num_workers, logger):
         self.graph = graph
         self.object_map = object_map
         self.args = args
@@ -87,7 +89,7 @@ class OWLGraphProcessor:
         self.successfully_sent = self.manager.dict()
         self.pool = Pool(processes=num_workers, initializer=init_worker, initargs=(args.debug,))
         self.logger = logger.getChild('OWLGraphProcessor')
-        self.km_generator = KMSyntaxGenerator(graph, object_map, self.logger)
+        self.km_generator = km_generator
         self.logger.info("Initialized with %d assertions.", len(assertions))
 
     def run(self):
@@ -135,8 +137,9 @@ def main():
     logger.info("Found %d classes, %d individuals, %d properties.", len(classes), len(individuals), len(properties))
 
     num_processes = args.num_processes if args.num_processes else cpu_count()
-    processor = OWLGraphProcessor(graph, object_map, assertions, args, num_processes, logger)
-    translate_assertions(assertions, processor)
+    km_generator = KMSyntaxGenerator(graph, object_map, logger)
+    translated_assertions = translate_assertions(assertions, km_generator)
+    processor = OWLGraphProcessor(km_generator, graph, object_map, translated_assertions, args, num_processes, logger)
     processor.run()
 
     total_expressions = len(processor.successfully_sent)
