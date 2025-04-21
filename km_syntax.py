@@ -89,7 +89,7 @@ class KMSyntaxGenerator:
             unique_values = list(dict.fromkeys(values))
             expr += f" ({slot} ({' '.join(unique_values)}))"
         expr += ")"
-        self.logger.debug("Generated KM for individual: %s...", expr[:100])
+        self.logger.debug("Generated KM for individual: %s...", expr)
         return expr
 
     def class_to_km(self, class_uri):
@@ -104,7 +104,7 @@ class KMSyntaxGenerator:
         for slot, values in slots.items():
             expr += f" ({slot} ({' '.join(values)}))"
         expr += ")"
-        self.logger.debug("Generated KM for class: %s...", expr[:100])
+        self.logger.debug("Generated KM for class: %s...", expr)
         return expr
 
     def property_to_km(self, prop_uri):
@@ -127,7 +127,7 @@ class KMSyntaxGenerator:
         if inverses:
             expr += f" (inverse ({' '.join(inverses)}))"
         expr += ")"
-        self.logger.debug("Generated KM for property: %s...", expr[:100])
+        self.logger.debug("Generated KM for property: %s...", expr)
         return expr
 
     def get_referenced_assertions(self, assertion):
