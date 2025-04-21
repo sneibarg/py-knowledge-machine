@@ -99,14 +99,14 @@ def extract_labels_and_ids(graph, logger):
 
 
 class OWLGraphProcessor:
-    def __init__(self, km_generator, graph, object_map, assertions, args, num_workers, logger):
+    def __init__(self, pool, km_generator, graph, object_map, assertions, args, logger):
         self.graph = graph
         self.object_map = object_map
         self.args = args
         self.assertions = assertions
         self.manager = Manager()
         self.successfully_sent = self.manager.dict()
-        self.pool = Pool(processes=num_workers, initializer=init_worker, initargs=(args.debug,))
+        self.pool = pool
         self.logger = logger.getChild('OWLGraphProcessor')
         self.km_generator = km_generator
         self.logger.info("Initialized with %d assertions.", len(assertions))
@@ -147,17 +147,21 @@ def main():
         logger.error("Fixed OWL file not found at %s.", FIXED_OWL_FILE)
         sys.exit(1)
 
+    pool = Pool(processes=num_processes, initializer=init_worker, initargs=(args.debug,))
     logger.info("Starting KM translation process.")
     graph = load_ontology(logger)
     object_map = extract_labels_and_ids(graph, logger)
     km_generator = KMSyntaxGenerator(graph, object_map, logger)
     assertions = preprocess(graph)
-    translated_assertions = translate_assertions(assertions, km_generator)
+    translate_func = partial(translate_assertions, assertions, km_generator)
+    start_time = time.time()
+    translated_assertions = pool.map(translate_func, assertions)
+    elapsed_time = time.time() - start_time
     if args.translate_only:
-        logger.info(f"Translated {str(len(translated_assertions))}.")
+        logger.info(f"Translated {str(len(translated_assertions))} in {str(elapsed_time)} seconds.")
         sys.exit(0)
 
-    processor = OWLGraphProcessor(km_generator, graph, object_map, translated_assertions, args, num_processes, logger)
+    processor = OWLGraphProcessor(pool, km_generator, graph, object_map, translated_assertions, args, logger)
     processor.run()
 
     total_expressions = len(processor.successfully_sent)
