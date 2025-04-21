@@ -1,5 +1,7 @@
 import argparse
 import os
+import time
+
 import rdflib
 from datetime import datetime
 from multiprocessing import Pool, cpu_count, Manager
@@ -48,7 +50,12 @@ class OWLGraphProcessor:
         self.km_generator = KMSyntaxGenerator(graph, object_map)
         self.manager = Manager()
         self.successfully_sent = self.manager.dict()
+        self.logger = setup_logging("owl_graph_processor", args.debug)
+        self.logger.info("Starting dependency loading.")
+        start_time = time.time()
         self.dependencies = self.compute_dependencies(parallel_deps, num_workers)
+        elapsed_time = time.time() - start_time
+        self.logger.info(f"Dependency loading completed in {elapsed_time:.2f} seconds.")
 
     def compute_dependencies(self, parallel_deps, num_workers):
         dependencies = {}

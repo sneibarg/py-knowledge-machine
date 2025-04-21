@@ -1,6 +1,8 @@
 import rdflib
 import json
 import re
+
+from logging_setup import setup_logging
 from utils import rdf_to_krl_name
 
 
@@ -25,6 +27,7 @@ class KMSyntaxGenerator:
     def __init__(self, graph, object_map):
         self.graph = graph
         self.object_map = object_map
+        self.logger = setup_logging("km_syntax_generator")
         self.resource_names = self.build_resource_names()
         self.predicate_names = self.build_predicate_names()
 
@@ -234,8 +237,6 @@ class KMSyntaxGenerator:
         Returns:
             list[str]: A list of KM code strings representing the prerequisite assertions.
         """
-        import re
-
         clean_assertion = re.sub(r'"[^"]*"', '', assertion)
         symbols = re.findall(r'[-\w]+', clean_assertion)
         subject = symbols[0] if symbols else None
@@ -286,9 +287,9 @@ class KMSyntaxGenerator:
             raise ValueError(f"Unknown type: {type}")
 
         clean_assertion = re.sub(r'"[^"]*"', '', expr)
+        self.logger.info(f"Assertion extracted as: {clean_assertion}")
         symbols = re.findall(r'[-\w]+', clean_assertion)
         referenced_frames = set(sym for sym in symbols if sym not in BUILT_IN_FRAMES)
-
         name_to_uri = {name: u for u, name in self.resource_names.items()}
         referenced_uris = [name_to_uri[frame_name] for frame_name in referenced_frames if frame_name in name_to_uri]
 
