@@ -75,7 +75,7 @@ class OWLGraphProcessor:
         self.assertions = assertions
         self.manager = Manager()
         self.successfully_sent = self.manager.dict()
-        self.pool = Pool(processes=num_workers, initializer=init_worker, initargs=(args.debug,))
+        self.pool = Pool(processes=num_workers, initializer=init_worker, initargs=(args.debug, logger))
         self.logger = logger
         self.km_generator = KMSyntaxGenerator(graph, object_map, self.logger)
         self.logger.info(f"Initialized OWLGraphProcessor with {len(assertions)} assertions.")
@@ -97,7 +97,7 @@ class OWLGraphProcessor:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Translate OpenCyc OWL to KM KRL.")
+    parser = argparse.ArgumentParser(description="Translate OWL to KM KRL.")
     parser.add_argument("--debug", action="store_true", help="Enable debug output.")
     parser.add_argument("--dry-run", action="store_true", help="Skip sending requests.")
     parser.add_argument("--num-processes", type=int, help="Number of processes.")
