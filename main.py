@@ -51,14 +51,14 @@ class OWLGraphProcessor:
         self.manager = Manager()
         self.successfully_sent = self.manager.dict()
         self.logger = setup_logging("owl_graph_processor", args.debug)
-        self.logger.info("Starting dependency loading.")
         self.pool = Pool(processes=num_workers)
         start_time = time.time()
-        self.dependencies = self.compute_dependencies(parallel_deps, num_workers)
+        self.logger.info(f"Starting dependency loading at start-time={start_time}.")
+        self.dependencies = self.compute_dependencies(parallel_deps)
         elapsed_time = time.time() - start_time
         self.logger.info(f"Dependency loading completed in {elapsed_time:.2f} seconds.")
 
-    def compute_dependencies(self, parallel_deps, num_workers):
+    def compute_dependencies(self, parallel_deps):
         dependencies = {}
         if parallel_deps:
             self.logger.info("Parallel dependency computing enabled.")
@@ -136,7 +136,6 @@ def main():
     graph = load_ontology()
     logger.info("Extracting object labels and external IDs.")
     object_map = extract_labels_and_ids(graph)
-    km_generator = KMSyntaxGenerator(graph, object_map)
     classes = list(graph.subjects(rdflib.RDF.type, rdflib.OWL.Class))
     individuals = [(s, o) for s, o in graph.subject_objects(rdflib.RDF.type)
                    if o != rdflib.OWL.Class and (o, rdflib.RDF.type, rdflib.OWL.Class) in graph]
@@ -160,6 +159,7 @@ def main():
         processor.run()
         total_expressions = len(processor.successfully_sent)
     else:
+        km_generator = KMSyntaxGenerator(graph, object_map)
         property_results = []
         class_results = []
         individual_results = []
@@ -169,6 +169,7 @@ def main():
             class_results = process_items(classes, "class", km_generator, 0, timestamp, args)
             individual_results = process_items(individuals, "individual", km_generator, 0, timestamp, args)
         else:
+
             num_processes = args.num_processes if args.num_processes else cpu_count()
             logger.info(f"Running in multi-threaded mode with {num_processes} processes.")
 
