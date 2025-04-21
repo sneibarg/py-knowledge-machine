@@ -12,23 +12,22 @@ KM_SERVER_URL = "http://localhost:8080/km"
 os.makedirs(LOG_DIR, exist_ok=True)
 
 
-def setup_logging(log_type, debug=False, pid=None):
-    """Configure logging with optional PID for process-specific logs."""
+def setup_logging(debug=False):
+    """Configure logging with a single file for all logs."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    logger_name = f"{log_type}_{os.getpid()}" if pid else log_type
-    log_file = os.path.join(LOG_DIR, f"{logger_name}_{timestamp}.log")
-
-    logger = logging.getLogger(logger_name)
+    log_file = os.path.join(LOG_DIR, f"application_{timestamp}.log")
+    logging.getLogger('').handlers = []
+    logger = logging.getLogger('app')
     logger.setLevel(logging.INFO if not debug else logging.DEBUG)
+    formatter = logging.Formatter("%(asctime)s [PID %(process)d] [%(levelname)s] [%(name)s] %(message)s")
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
 
-    handlers = [logging.FileHandler(log_file)]
     if debug:
-        handlers.append(logging.StreamHandler())
-
-    formatter = logging.Formatter(f"%(asctime)s [PID {os.getpid()}] [%(levelname)s] %(message)s")
-    for handler in handlers:
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
 
     return logger
 

@@ -9,17 +9,16 @@ from km_syntax import KMSyntaxGenerator
 from ontology_loader import load_ontology
 
 
-def init_worker(debug):
+def init_worker(debug, parent_logger):
     """Initialize worker process with a logger."""
     global worker_logger
-    process_name = current_process().name
-    worker_logger = setup_logging(process_name, debug=debug, pid=True)
-    worker_logger.info(f"[PID {os.getpid()}] Worker {process_name} initialized.")
+    worker_logger = parent_logger.getChild(f'Worker.{current_process().name}')
+    worker_logger.info("Worker initialized.")
 
 
 def process_assertion(km_generator, assertion, successfully_sent, dry_run):
     """Process a single assertion with dependency handling."""
-    worker_logger.info(f"[PID {os.getpid()}] Processing assertion: {assertion}")
+    worker_logger.info("Processing assertion: %s", assertion)
     assertion_type, uri = assertion
     try:
         if assertion_type == "class":
@@ -53,6 +52,22 @@ def process_assertion(km_generator, assertion, successfully_sent, dry_run):
         return False
 
 
+def extract_labels_and_ids(graph):
+    """Extract labels and external IDs from the graph (from utils.py)."""
+    logger = setup_logging("utils", pid=True)
+    logger.info(f"[PID {os.getpid()}] Extracting labels and IDs from graph...")
+    result = {}
+    for subject in graph.subjects():
+        label = next((str(obj) for obj in graph.objects(subject, rdflib.RDFS.label) if isinstance(obj, rdflib.Literal)),
+                     None)
+        external_id = next(
+            (str(obj) for obj in graph.objects(subject, rdflib.OWL.sameAs) if isinstance(obj, rdflib.URIRef)), None)
+        if label or external_id:
+            result[subject] = {'label': label, 'external_id': external_id}
+    logger.info(f"[PID {os.getpid()}] Extracted labels/IDs for {len(result)} resources.")
+    return result
+
+
 class OWLGraphProcessor:
     def __init__(self, graph, object_map, assertions, args, num_workers):
         self.graph = graph
@@ -68,7 +83,7 @@ class OWLGraphProcessor:
 
     def run(self):
         """Run the processing with multi-processing."""
-        self.logger.info(f"[PID {os.getpid()}] Starting processing in multi-threaded mode.")
+        self.logger.info("Starting processing in multi-threaded mode.")
         start_time = time.time()
         process_func = partial(process_assertion, self.km_generator, successfully_sent=self.successfully_sent,
                                dry_run=self.args.dry_run)
@@ -78,25 +93,8 @@ class OWLGraphProcessor:
 
         elapsed_time = time.time() - start_time
         successes = sum(results)
-        self.logger.info(
-            f"[PID {os.getpid()}] Processing completed in {elapsed_time:.2f}s. Sent {successes}/{len(self.assertions)} assertions.")
+        self.logger.info(f"Processing completed in {elapsed_time:.2f}s. Sent {successes}/{len(self.assertions)} assertions.")
         return successes
-
-
-def extract_labels_and_ids(graph):
-    """Extract labels and external IDs from the graph (from utils.py)."""
-    logger = setup_logging("utils", pid=True)
-    logger.info(f"[PID {os.getpid()}] Extracting labels and IDs from graph...")
-    result = {}
-    for subject in graph.subjects():
-        label = next((str(obj) for obj in graph.objects(subject, rdflib.RDFS.label) if isinstance(obj, rdflib.Literal)),
-                     None)
-        external_id = next(
-            (str(obj) for obj in graph.objects(subject, rdflib.OWL.sameAs) if isinstance(obj, rdflib.URIRef)), None)
-        if label or external_id:
-            result[subject] = {'label': label, 'external_id': external_id}
-    logger.info(f"[PID {os.getpid()}] Extracted labels/IDs for {len(result)} resources.")
-    return result
 
 
 def main():

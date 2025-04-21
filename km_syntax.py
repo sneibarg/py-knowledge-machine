@@ -27,18 +27,17 @@ def rdf_to_krl_name(uri):
 
 
 class KMSyntaxGenerator:
-    def __init__(self, graph, object_map, logger=None):
+    def __init__(self, graph, object_map, parent_logger):
         self.graph = graph
         self.object_map = object_map
-        self.logger = logger if logger else setup_logging("km_syntax", pid=True)
+        self.logger = parent_logger.getChild('KMSyntaxGenerator')
         self.resource_names = self.build_resource_names()
         self.predicate_names = self.build_predicate_names()
-        self.logger.info(
-            f"[PID {os.getpid()}] Initialized KMSyntaxGenerator with {len(self.resource_names)} resources.")
+        self.logger.info("Initialized with %d resources.", len(self.resource_names))
 
     def build_resource_names(self):
         names = {}
-        self.logger.info(f"[PID {os.getpid()}] Building resource names...")
+        self.logger.info("Building resource names...")
         for s in self.graph.subjects():
             if s in self.object_map and 'label' in self.object_map[s]:
                 names[s] = self.object_map[s]['label']
@@ -48,7 +47,7 @@ class KMSyntaxGenerator:
                     names[s] = next((l for l in labels if l[0].isupper()), labels[0])
                 else:
                     names[s] = rdf_to_krl_name(s)
-        self.logger.info(f"[PID {os.getpid()}] Completed building {len(names)} resource names.")
+        self.logger.info("Completed building %d resource names.", len(names))
         return names
 
     def build_predicate_names(self):
@@ -107,7 +106,7 @@ class KMSyntaxGenerator:
         for slot, values in slots.items():
             expr += f" ({slot} ({' '.join(values)}))"
         expr += ")"
-        self.logger.debug(f"[PID {os.getpid()}] Generated KM for class: {expr[:100]}...")
+        self.logger.debug("Converting class %s to KM syntax...", frame_name)
         return expr
 
     def property_to_km(self, prop_uri):
