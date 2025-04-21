@@ -9,6 +9,7 @@ from km_syntax import KMSyntaxGenerator
 from ontology_loader import load_ontology
 
 logger = None
+worker_logger = None
 
 
 def init_worker(debug):
@@ -20,7 +21,7 @@ def init_worker(debug):
 
 def translate_assertions(assertion_list, km_generator):
     translated_assertions = []
-    for assertion_type, assertion in assertion_list:
+    for assertion in assertion_list:
         translated_assertions.append(translate_assertion(assertion, km_generator))
     return translated_assertions
 
