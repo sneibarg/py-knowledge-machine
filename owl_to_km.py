@@ -17,34 +17,41 @@ def init_worker(debug):
     worker_logger.info("Initialized worker.")
 
 
+def translate_assertions(assertion_list, processor):
+    for assertion_type, assertion in assertion_list:
+        translate_assertion(assertion, processor.km_generator)
+
+
+def translate_assertion(assertion, km_generator):
+    assertion_type, uri = assertion
+    if assertion_type == "class":
+        expr = km_generator.class_to_km(uri)
+    elif assertion_type == "property":
+        expr = km_generator.property_to_km(uri)
+    elif assertion_type == "individual":
+        ind_uri, class_uri = uri
+        expr = km_generator.individual_to_km(ind_uri)
+    else:
+        worker_logger.error("Unknown assertion type: %s", assertion_type)
+        raise ValueError(f"Unknown type: {assertion_type}")
+    return expr
+
+
 def process_assertion(km_generator, assertion, successfully_sent, dry_run):
     """Process a single assertion with dependency handling."""
-    worker_logger.info("Processing assertion: %s", assertion)
-    assertion_type, uri = assertion
     try:
-        if assertion_type == "class":
-            expr = km_generator.class_to_km(uri)
-        elif assertion_type == "property":
-            expr = km_generator.property_to_km(uri)
-        elif assertion_type == "individual":
-            ind_uri, class_uri = uri
-            expr = km_generator.individual_to_km(ind_uri)
-        else:
-            worker_logger.error("Unknown assertion type: %s", assertion_type)
-            raise ValueError(f"Unknown type: {assertion_type}")
-
-        worker_logger.info(f"Getting referenced assertions for assertion: {expr}")
+        worker_logger.info(f"Getting referenced assertions for assertion: {assertion}")
         refs = km_generator.get_referenced_assertions(assertion)
-        worker_logger.info("Found %d referenced assertions.", len(refs))
+        worker_logger.info(f"Found {str(len(refs))} referenced assertions for assertion: {assertion}.")
         for ref in refs:
             if ref not in successfully_sent:
                 worker_logger.info("Processing dependency: %s", ref)
                 process_assertion(km_generator, ref, successfully_sent, dry_run)
 
-        result = send_to_km(expr, dry_run=dry_run)
+        result = send_to_km(assertion, dry_run=dry_run)
         if result.get("success", False):
-            successfully_sent[assertion] = expr
-            worker_logger.info("Successfully sent assertion: %s...", expr[:100])
+            successfully_sent[assertion] = assertion
+            worker_logger.info("Successfully sent assertion: %s...", assertion)
             return True
         else:
             worker_logger.error("Failed to send assertion: %s", result)
@@ -129,6 +136,7 @@ def main():
 
     num_processes = args.num_processes if args.num_processes else cpu_count()
     processor = OWLGraphProcessor(graph, object_map, assertions, args, num_processes, logger)
+    translate_assertions(assertions, processor)
     processor.run()
 
     total_expressions = len(processor.successfully_sent)
