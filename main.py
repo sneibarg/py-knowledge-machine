@@ -1,62 +1,83 @@
 import argparse
+import logging
 import os
 import time
 
 import rdflib
-from datetime import datetime
-from multiprocessing import Pool, cpu_count, Manager
+from functools import partial
+from multiprocessing import Pool, cpu_count, Manager, current_process
 from config import FIXED_OWL_FILE
 from km_syntax import KMSyntaxGenerator
-from logging_setup import setup_logging, setup_batch_logger
+from logging_setup import setup_logging
 from ontology_loader import load_ontology
 from preprocess import preprocess_owl_file
 from rest_client import send_to_km
 from utils import extract_labels_and_ids
 
 
-def process_items(items, item_type, generator, process_id, timestamp, args):
-    batch_logger = setup_batch_logger(item_type, process_id, timestamp, args.debug)
-    batch_logger.info(f"Starting processing for {item_type} with {len(items)} items.")
-    results = []
-
-    if item_type == "class":
-        for class_uri in items:
-            expr = generator.class_to_km(class_uri)
-            result = send_to_km(expr, dry_run=args.dry_run)
-            batch_logger.info(f"Generated: {expr} | Result:\n{result}")
-            results.append((expr, result))
-    elif item_type == "individual":
-        for ind_uri, class_uri in items:
-            expr = generator.individual_to_km(ind_uri, class_uri)
-            result = send_to_km(expr, dry_run=args.dry_run)
-            batch_logger.info(f"Generated: {expr} | Result:\n{result}")
-            results.append((expr, result))
-    elif item_type == "property":
-        for prop_uri in items:
-            expr = generator.property_to_km(prop_uri)
-            result = send_to_km(expr, dry_run=args.dry_run)
-            batch_logger.info(f"Generated: {expr} | Result:\n{result}")
-            results.append((expr, result))
-    batch_logger.info("Processing complete.")
-    return results
+def process_assertion(km_generator, assertion, successfully_sent, dry_run):
+    worker_logger.info(f"Processing assertion: {assertion}")
+    assertion_type, uri = assertion  # Assuming assertion is a tuple
+    if assertion_type == "class":
+        expr = km_generator.class_to_km(uri)
+    elif assertion_type == "property":
+        expr = km_generator.property_to_km(uri)
+    elif assertion_type == "individual":
+        ind_uri, class_uri = uri
+        expr = km_generator.individual_to_km(ind_uri)
+    else:
+        worker_logger.error(f"Unknown type: {assertion_type}")
+        raise ValueError(f"Unknown type: {assertion_type}")
+    result = send_to_km(expr, dry_run=dry_run)  # Assumed function
+    if result.get("success", False):
+        successfully_sent[assertion] = expr
+        worker_logger.info(f"Successfully sent assertion: {assertion}")
+        return True
+    else:
+        worker_logger.error(f"Failed to process {assertion}: {result}")
+        return False
 
 
 class OWLGraphProcessor:
-    def __init__(self, graph, object_map, assertions, args, num_workers=4, parallel_deps=False):
+    def __init__(self, graph, object_map, args, num_workers):
         self.graph = graph
         self.object_map = object_map
-        self.assertions = assertions
         self.args = args
         self.km_generator = KMSyntaxGenerator(graph, object_map)
+        self.assertions = []
+        self.dependencies = {}
+        self.dependency_aware = not args.single_thread
         self.manager = Manager()
         self.successfully_sent = self.manager.dict()
-        self.logger = setup_logging("owl_graph_processor", args.debug)
-        self.pool = Pool(processes=num_workers)
-        start_time = time.time()
-        self.logger.info(f"Starting dependency loading at start-time={start_time}.")
-        self.dependencies = self.compute_dependencies(parallel_deps)
-        elapsed_time = time.time() - start_time
-        self.logger.info(f"Dependency loading completed in {elapsed_time:.2f} seconds.")
+        self.pool = Pool(
+            processes=num_workers,
+            initializer=self.init_worker,
+            initargs=(args.debug,)
+        )
+        self.logger = logging.getLogger("OWLGraphProcessor")
+        self.logger.setLevel(logging.INFO if not args.debug else logging.DEBUG)
+        handler = logging.FileHandler("logs/main.log")
+        handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        self.logger.addHandler(handler)
+        if self.dependency_aware:
+            start_time = time.time()
+            self.logger.info(f"Starting dependency loading at start-time={start_time}.")
+            self.dependencies = self.compute_dependencies(args.parallel_deps)
+            elapsed_time = time.time() - start_time
+            self.logger.info(f"Dependency loading completed in {elapsed_time:.2f} seconds.")
+        else:
+            self.dependencies = {}
+
+    @staticmethod
+    def init_worker(debug):
+        global worker_logger
+        process_name = current_process().name
+        log_file = f"logs/{process_name}.log"
+        worker_logger = logging.getLogger(process_name)
+        worker_logger.setLevel(logging.INFO if not debug else logging.DEBUG)
+        handler = logging.FileHandler(log_file)
+        handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        worker_logger.addHandler(handler)
 
     def compute_dependencies(self, parallel_deps):
         dependencies = {}
@@ -75,14 +96,18 @@ class OWLGraphProcessor:
         return self.km_generator.get_referenced_assertions(assertion)
 
     def get_ready_assertions(self):
-        ready = []
-        for assertion in self.assertions:
-            deps = self.dependencies.get(assertion, [])
-            if all(dep in self.successfully_sent for dep in deps):
-                ready.append(assertion)
-        return ready
+        if self.dependency_aware:
+            ready = []
+            for assertion in self.assertions:
+                deps = self.dependencies.get(assertion, [])
+                if all(dep in self.successfully_sent for dep in deps):
+                    ready.append(assertion)
+            return ready
+        else:
+            return self.assertions  # All assertions are ready if not dependency-aware
 
     def process_assertion(self, assertion):
+        """Process a single assertion and return the result."""
         assertion_type, uri = assertion
         if assertion_type == "class":
             expr = self.km_generator.class_to_km(uri)
@@ -90,11 +115,13 @@ class OWLGraphProcessor:
             expr = self.km_generator.property_to_km(uri)
         elif assertion_type == "individual":
             ind_uri, class_uri = uri
-            expr = self.km_generator.individual_to_km(ind_uri)
+            expr = self.km_generator.individual_to_km(ind_uri)  # Assumes class_uri is handled internally
         else:
             self.logger.error(f"Unknown type: {assertion_type}")
             raise ValueError(f"Unknown type: {assertion_type}")
+
         result = send_to_km(expr, dry_run=self.args.dry_run)
+        self.logger.info(f"Generated: {expr} | Result: {result}")
         if result.get("success", False):
             self.successfully_sent[assertion] = expr
             return True
@@ -103,13 +130,23 @@ class OWLGraphProcessor:
             return False
 
     def run(self):
-        while True:
-            ready_assertions = self.get_ready_assertions()
-            if not ready_assertions:
-                self.logger.info("No more assertions to process or dependencies unresolved.")
-                break
-            results = self.pool.map(self.process_assertion, ready_assertions)
-            self.assertions = [a for a in self.assertions if a not in ready_assertions]
+        if self.dependency_aware:
+            # Dependency-aware multi-threaded processing
+            self.logger.info("Running in dependency-aware multi-threaded mode.")
+            while self.assertions:
+                ready_assertions = self.get_ready_assertions()
+                if not ready_assertions:
+                    self.logger.info("No more assertions to process or dependencies unresolved.")
+                    break
+                process_func = partial(process_assertion, successfully_sent=self.successfully_sent,
+                                   dry_run=self.args.dry_run)
+                results = self.pool.map(self.process_assertion, ready_assertions)
+                self.assertions = [a for a in self.assertions if a not in ready_assertions]
+        else:
+            self.logger.info("Running in single-threaded mode without dependencies.")
+            for assertion in self.assertions:
+                process_assertion(assertion)
+
         self.pool.close()
         self.pool.join()
         self.logger.info("Processing complete.")
@@ -117,14 +154,11 @@ class OWLGraphProcessor:
 
 def main():
     parser = argparse.ArgumentParser(description="Translate OpenCyc OWL to KM KRL.")
-    parser.add_argument("--single-thread", action="store_true", help="Run in single-threaded mode for testing.")
+    parser.add_argument("--single-thread", action="store_true", help="Run in single-threaded mode without dependencies.")
     parser.add_argument("--debug", action="store_true", help="Enable debug output to console.")
     parser.add_argument("--dry-run", action="store_true", help="Skip sending requests to KM server.")
     parser.add_argument("--num-processes", type=int, help="Specify the number of processes to fork.")
-    parser.add_argument("--use-graph-processor", action="store_true",
-                        help="Use the new OWLGraphProcessor for processing.")
-    parser.add_argument("--parallel-deps", action="store_true",
-                        help="Compute dependencies in parallel for OWLGraphProcessor.")
+    parser.add_argument("--parallel-deps", action="store_true", help="Compute dependencies in parallel.")
     args = parser.parse_args()
 
     logger = setup_logging("main", args.debug)
@@ -142,61 +176,22 @@ def main():
     properties = list(graph.subjects(rdflib.RDF.type, rdflib.OWL.ObjectProperty))
 
     logger.info(f"Found {len(classes)} classes, {len(individuals)} individuals, {len(properties)} properties.")
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    if args.use_graph_processor:
-        assertions = []
-        for uri in classes:
-            assertions.append(("class", uri))
-        for uri in properties:
-            assertions.append(("property", uri))
-        for ind_uri, class_uri in individuals:
-            assertions.append(("individual", (ind_uri, class_uri)))
+    # Prepare assertions
+    assertions = []
+    for uri in classes:
+        assertions.append(("class", uri))
+    for uri in properties:
+        assertions.append(("property", uri))
+    for ind_uri, class_uri in individuals:
+        assertions.append(("individual", (ind_uri, class_uri)))
 
-        num_processes = args.num_processes if args.num_processes else cpu_count()
-        processor = OWLGraphProcessor(graph, object_map, assertions, args,
-                                      num_workers=num_processes, parallel_deps=args.parallel_deps)
-        processor.run()
-        total_expressions = len(processor.successfully_sent)
-    else:
-        km_generator = KMSyntaxGenerator(graph, object_map)
-        property_results = []
-        class_results = []
-        individual_results = []
-        if args.single_thread:
-            logger.info("Running in single-threaded mode.")
-            property_results = process_items(properties, "property", km_generator, 0, timestamp, args)
-            class_results = process_items(classes, "class", km_generator, 0, timestamp, args)
-            individual_results = process_items(individuals, "individual", km_generator, 0, timestamp, args)
-        else:
+    # Configure and run OWLGraphProcessor
+    num_processes = args.num_processes if args.num_processes else cpu_count()
+    processor = OWLGraphProcessor(graph, object_map, assertions, args, num_processes)
+    processor.run()
 
-            num_processes = args.num_processes if args.num_processes else cpu_count()
-            logger.info(f"Running in multi-threaded mode with {num_processes} processes.")
-
-            batch_size = max(1, len(classes) // num_processes)
-            class_batches = [classes[i:i + batch_size] for i in range(0, len(classes), batch_size)]
-            batch_size = max(1, len(individuals) // num_processes)
-            individual_batches = [individuals[i:i + batch_size] for i in range(0, len(individuals), batch_size)]
-            batch_size = max(1, len(properties) // num_processes)
-            property_batches = [properties[i:i + batch_size] for i in range(0, len(properties), batch_size)]
-
-            with Pool(processes=num_processes) as pool:
-                property_tasks = [(batch, "property", km_generator, i, timestamp, args)
-                                  for i, batch in enumerate(property_batches)]
-                property_results = pool.starmap(process_items, property_tasks)
-
-                class_tasks = [(batch, "class", km_generator, i, timestamp, args)
-                               for i, batch in enumerate(class_batches)]
-                class_results = pool.starmap(process_items, class_tasks)
-
-                individual_tasks = [(batch, "individual", km_generator, i, timestamp, args)
-                                    for i, batch in enumerate(individual_batches)]
-                individual_results = pool.starmap(process_items, individual_tasks)
-
-        total_expressions = (sum(len(batch) for batch in property_results) +
-                             sum(len(batch) for batch in class_results) +
-                             sum(len(batch) for batch in individual_results))
-
+    total_expressions = len(processor.successfully_sent)
     logger.info(f"Processed and sent {total_expressions} KRL expressions in total.")
 
 
