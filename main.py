@@ -70,6 +70,7 @@ class OWLGraphProcessor:
         return dependencies
 
     def _compute_deps_worker(self, assertion):
+        self.logger.info(f"Computing assertion {assertion}")
         return self.km_generator.get_referenced_assertions(assertion)
 
     def get_ready_assertions(self):
