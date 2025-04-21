@@ -1,7 +1,7 @@
 import rdflib
 import os
 import re
-from core import FIXED_OWL_FILE, OWL_FILE, setup_logging
+from core import FIXED_OWL_FILE, OWL_FILE
 
 
 def preprocess_owl_file(logger):
@@ -45,3 +45,4 @@ def load_ontology(logger):
     except Exception as e:
         logger.error("Failed to parse ontology: %s", str(e))
         raise
+    
