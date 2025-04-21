@@ -56,13 +56,18 @@ def translate_assertion(assertion, km_generator):
 def process_assertion(km_generator, assertion, successfully_sent, dry_run):
     """Process a single assertion with dependency handling."""
     try:
-        worker_logger.info(f"Getting referenced assertions for assertion: {assertion}")
         refs = km_generator.get_referenced_assertions(assertion)
         worker_logger.info(f"Found {str(len(refs))} referenced assertions for assertion: {assertion}.")
+        
+        skip_send = False
         for ref in refs:
             if ref not in successfully_sent:
                 worker_logger.info("Processing dependency: %s", ref)
-                process_assertion(km_generator, ref, successfully_sent, dry_run)
+                skip_send = process_assertion(km_generator, ref, successfully_sent, dry_run)
+
+        if skip_send:
+            worker_logger.info(f"Skipping sending assertion {assertion} due to missing dependencies!")
+            return False
 
         result = send_to_km(assertion, dry_run=dry_run)
         if result.get("success", False):
