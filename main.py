@@ -1,7 +1,6 @@
 import argparse
 import os
 import rdflib
-import sexpdata
 from datetime import datetime
 from multiprocessing import Pool, cpu_count, Manager
 from config import FIXED_OWL_FILE
@@ -11,29 +10,6 @@ from ontology_loader import load_ontology
 from preprocess import preprocess_owl_file
 from rest_client import send_to_km
 from utils import extract_labels_and_ids
-
-
-def pretty_print_sexp(sexp, indent=0):
-    if isinstance(sexp, list):
-        if not sexp:
-            return '()'
-        result = '(\n'
-        for item in sexp:
-            result += '  ' * (indent + 1) + pretty_print_sexp(item, indent + 1) + '\n'
-        result += '  ' * indent + ')'
-        return result
-    elif isinstance(sexp, sexpdata.Symbol):
-        return sexp.value()
-    else:
-        return str(sexp)
-
-
-def pretty_print(expr):
-    try:
-        parsed = sexpdata.loads(expr)
-        return pretty_print_sexp(parsed)
-    except Exception as e:
-        return f"Error pretty-printing: {e}\n{expr}"
 
 
 def process_items(items, item_type, generator, process_id, timestamp, args):
