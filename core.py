@@ -4,7 +4,6 @@ import requests
 import json
 from datetime import datetime
 
-# Configuration Constants
 BASE_DIR = os.getcwd()
 OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-2012-05-10.owl")
 FIXED_OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-2012-05-10_fixed.owl")
@@ -13,7 +12,6 @@ KM_SERVER_URL = "http://localhost:8080/km"
 os.makedirs(LOG_DIR, exist_ok=True)
 
 
-# Logging Setup
 def setup_logging(log_type, debug=False, pid=None):
     """Configure logging with optional PID for process-specific logs."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -51,7 +49,6 @@ def setup_batch_logger(item_type, process_id, timestamp, debug=False):
     return logger
 
 
-# REST Client
 def send_to_km(expr, fail_mode="fail", dry_run=False):
     """Send a KM expression to the server."""
     logger = logging.getLogger(__name__)

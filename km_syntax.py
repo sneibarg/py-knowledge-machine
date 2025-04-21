@@ -21,7 +21,6 @@ BUILT_IN_FRAMES = {
 }
 
 
-# Utility Functions from utils.py
 def rdf_to_krl_name(uri):
     """Convert an RDF URI to a KM-compatible name."""
     return str(uri).split('/')[-1]
