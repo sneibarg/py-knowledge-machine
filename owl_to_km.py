@@ -1,19 +1,20 @@
 import argparse
 import os
 import time
-import rdflib
-from core import setup_logging, send_to_km
-from km_syntax import KMSyntaxGenerator
-from ontology_loader import load_ontology
 from multiprocessing import Pool, cpu_count, Manager, current_process
 from functools import partial
+import rdflib
+from core import setup_logging, send_to_km, FIXED_OWL_FILE
+from km_syntax import KMSyntaxGenerator
+from ontology_loader import load_ontology
 
 
-def init_worker(debug, parent_logger):
+def init_worker(debug):
     """Initialize worker process with a logger."""
     global worker_logger
-    worker_logger = parent_logger.getChild(f'Worker.{current_process().name}')
-    worker_logger.info("Worker initialized.")
+    logger = setup_logging(debug)
+    worker_logger = logger.getChild(f'Worker.{current_process().name}')
+    worker_logger.info("Initialized worker.")
 
 
 def process_assertion(km_generator, assertion, successfully_sent, dry_run):
@@ -29,32 +30,33 @@ def process_assertion(km_generator, assertion, successfully_sent, dry_run):
             ind_uri, class_uri = uri
             expr = km_generator.individual_to_km(ind_uri)
         else:
-            worker_logger.error(f"[PID {os.getpid()}] Unknown assertion type: {assertion_type}")
+            worker_logger.error("Unknown assertion type: %s", assertion_type)
             raise ValueError(f"Unknown type: {assertion_type}")
 
         refs = km_generator.get_referenced_assertions(assertion)
-        worker_logger.info(f"[PID {os.getpid()}] Found {len(refs)} referenced assertions.")
+        worker_logger.info("Found %d referenced assertions.", len(refs))
         for ref in refs:
             if ref not in successfully_sent:
-                worker_logger.info(f"[PID {os.getpid()}] Processing dependency: {ref}")
+                worker_logger.info("Processing dependency: %s", ref)
                 process_assertion(km_generator, ref, successfully_sent, dry_run)
 
         result = send_to_km(expr, dry_run=dry_run)
         if result.get("success", False):
             successfully_sent[assertion] = expr
-            worker_logger.info(f"[PID {os.getpid()}] Successfully sent assertion: {expr[:100]}...")
+            worker_logger.info("Successfully sent assertion: %s...", expr[:100])
             return True
         else:
-            worker_logger.error(f"[PID {os.getpid()}] Failed to send assertion: {result}")
+            worker_logger.error("Failed to send assertion: %s", result)
             return False
     except Exception as e:
-        worker_logger.error(f"[PID {os.getpid()}] Error processing assertion: {str(e)}")
+        worker_logger.error("Error processing assertion: %s", str(e))
         return False
 
 
 def extract_labels_and_ids(graph, logger):
-    """Extract labels and external IDs from the graph (from utils.py)."""
-    logger.info(f"[PID {os.getpid()}] Extracting labels and IDs from graph...")
+    """Extract labels and external IDs from the graph."""
+    logger = logger.getChild('LabelsExtractor')
+    logger.info("Extracting labels and IDs from graph...")
     result = {}
     for subject in graph.subjects():
         label = next((str(obj) for obj in graph.objects(subject, rdflib.RDFS.label) if isinstance(obj, rdflib.Literal)),
@@ -63,22 +65,22 @@ def extract_labels_and_ids(graph, logger):
             (str(obj) for obj in graph.objects(subject, rdflib.OWL.sameAs) if isinstance(obj, rdflib.URIRef)), None)
         if label or external_id:
             result[subject] = {'label': label, 'external_id': external_id}
-    logger.info(f"Extracted labels/IDs for {len(result)} resources.")
+    logger.info("Extracted labels/IDs for %d resources.", len(result))
     return result
 
 
 class OWLGraphProcessor:
-    def __init__(self, logger, graph, object_map, assertions, args, num_workers):
+    def __init__(self, graph, object_map, assertions, args, num_workers, logger):
         self.graph = graph
         self.object_map = object_map
         self.args = args
         self.assertions = assertions
         self.manager = Manager()
         self.successfully_sent = self.manager.dict()
-        self.pool = Pool(processes=num_workers, initializer=init_worker, initargs=(args.debug, logger))
-        self.logger = logger
+        self.pool = Pool(processes=num_workers, initializer=init_worker, initargs=(args.debug,))
+        self.logger = logger.getChild('OWLGraphProcessor')
         self.km_generator = KMSyntaxGenerator(graph, object_map, self.logger)
-        self.logger.info(f"Initialized OWLGraphProcessor with {len(assertions)} assertions.")
+        self.logger.info("Initialized with %d assertions.", len(assertions))
 
     def run(self):
         """Run the processing with multi-processing."""
@@ -92,19 +94,24 @@ class OWLGraphProcessor:
 
         elapsed_time = time.time() - start_time
         successes = sum(results)
-        self.logger.info(f"Processing completed in {elapsed_time:.2f}s. Sent {successes}/{len(self.assertions)} assertions.")
+        self.logger.info("Processing completed in %.2fs. Sent %d/%d assertions.", elapsed_time, successes,
+                         len(self.assertions))
         return successes
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Translate OWL to KM KRL.")
+    parser = argparse.ArgumentParser(description="Translate OpenCyc OWL to KM KRL.")
     parser.add_argument("--debug", action="store_true", help="Enable debug output.")
-    parser.add_argument("--dry-run", action="store_true", help="Skip sending requests.")
-    parser.add_argument("--num-processes", type=int, help="Number of processes.")
+    parser.add_argument("--dry-run", action="store_true", help="Skip sending requests to KM server.")
+    parser.add_argument("--num-processes", type=int, help="Number of processes to use.")
     args = parser.parse_args()
 
     logger = setup_logging(args.debug)
     logger.info("Starting KM translation process.")
+
+    if not os.path.exists(FIXED_OWL_FILE):
+        logger.error("Fixed OWL file not found at %s.", FIXED_OWL_FILE)
+        return
 
     graph = load_ontology(logger)
     object_map = extract_labels_and_ids(graph, logger)
@@ -120,7 +127,7 @@ def main():
     logger.info("Found %d classes, %d individuals, %d properties.", len(classes), len(individuals), len(properties))
 
     num_processes = args.num_processes if args.num_processes else cpu_count()
-    processor = OWLGraphProcessor(logger, graph, object_map, assertions, args, num_processes)
+    processor = OWLGraphProcessor(graph, object_map, assertions, args, num_processes, logger)
     processor.run()
 
     total_expressions = len(processor.successfully_sent)

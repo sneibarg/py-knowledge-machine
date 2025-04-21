@@ -32,36 +32,20 @@ def setup_logging(debug=False):
     return logger
 
 
-def setup_batch_logger(item_type, process_id, timestamp, debug=False):
-    """Setup logger for batch processing with PID."""
-    pid = os.getpid()
-    logger_name = f"{item_type}_{process_id}_{pid}"
-    batch_log = os.path.join(LOG_DIR, f"{logger_name}_{timestamp}.log")
-    logger = logging.getLogger(logger_name)
-    logger.setLevel(logging.INFO if not debug else logging.DEBUG)
-    handler = logging.FileHandler(batch_log)
-    formatter = logging.Formatter(f"%(asctime)s [PID {pid}] [%(levelname)s] %(message)s")
-    handler.setFormatter(formatter)
-    logger.handlers = [handler]
-    if debug:
-        logger.handlers.append(logging.StreamHandler())
-    return logger
-
-
 def send_to_km(expr, fail_mode="fail", dry_run=False):
     """Send a KM expression to the server."""
-    logger = logging.getLogger(__name__)
-    logger.info(f"[PID {os.getpid()}] Preparing to send expression: {expr[:100]}...")
+    logger = logging.getLogger('OWL-to-KM.rest_client')
+    logger.info("Preparing to send expression: %s...", expr[:100])
     if dry_run:
-        logger.info(f"[PID {os.getpid()}] Dry-run mode: Skipped sending '{expr[:100]}...'")
+        logger.info("Dry-run mode: Skipped sending '%s...'", expr[:100])
         return {"success": True, "message": "Dry-run: Skipped sending to KM server."}
     payload = {"expr": expr, "fail_mode": fail_mode}
     headers = {"Content-Type": "application/json"}
     try:
         response = requests.post(KM_SERVER_URL, data=json.dumps(payload), headers=headers, timeout=10)
         response.raise_for_status()
-        logger.info(f"[PID {os.getpid()}] Successfully sent expression: {expr[:100]}...")
+        logger.info("Successfully sent expression: %s...", expr[:100])
         return response.json()
     except requests.exceptions.RequestException as e:
-        logger.error(f"[PID {os.getpid()}] Failed to send expression: {str(e)}")
+        logger.error("Failed to send expression: %s", str(e))
         return {"success": False, "error": str(e)}
