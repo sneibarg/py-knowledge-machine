@@ -2,7 +2,6 @@ import rdflib
 import json
 import re
 
-
 cyc_annot_label = rdflib.URIRef("http://sw.cyc.com/CycAnnotations_v1#label")
 TYPE_PREDICATES = [
     rdflib.RDF.type,
@@ -43,7 +42,7 @@ class KMSyntaxGenerator:
             else:
                 labels = [str(o) for o in self.graph.objects(s, cyc_annot_label) if isinstance(o, rdflib.Literal)]
                 if labels:
-                    names[s] = next((l for l in labels if l[0].isupper()), labels[0])
+                    names[s] = next((label for label in labels if label[0].isupper()), labels[0])
                 else:
                     names[s] = rdf_to_krl_name(s)
         self.logger.info("Completed building %d resource names.", len(names))
