@@ -12,6 +12,18 @@ logger = None
 worker_logger = None
 
 
+def preprocess(graph):
+    classes = list(graph.subjects(rdflib.RDF.type, rdflib.OWL.Class))
+    individuals = [(s, o) for s, o in graph.subject_objects(rdflib.RDF.type)
+                   if o != rdflib.OWL.Class and (o, rdflib.RDF.type, rdflib.OWL.Class) in graph]
+    properties = list(graph.subjects(rdflib.RDF.type, rdflib.OWL.ObjectProperty))
+    assertions = [("class", uri) for uri in classes] + \
+                 [("property", uri) for uri in properties] + \
+                 [("individual", (ind_uri, class_uri)) for ind_uri, class_uri in individuals]
+    logger.info("Found %d classes, %d individuals, %d properties.", len(classes), len(individuals), len(properties))
+    return assertions
+
+
 def init_worker(debug):
     """Initialize worker process with a logger."""
     global logger, worker_logger
@@ -111,36 +123,29 @@ class OWLGraphProcessor:
         return successes
 
 
-def main():
+def parse_arguments():
     parser = argparse.ArgumentParser(description="Translate OpenCyc OWL to KM KRL.")
     parser.add_argument("--debug", action="store_true", help="Enable debug output.")
     parser.add_argument("--dry-run", action="store_true", help="Skip sending requests to KM server.")
     parser.add_argument("--num-processes", type=int, help="Number of processes to use.")
-    args = parser.parse_args()
+    return parser.parse_args()
 
+
+def main():
     global logger
+    args = parse_arguments()
+    num_processes = args.num_processes if args.num_processes else cpu_count()
     logger = setup_logging(args.debug)
-    logger.info("Starting KM translation process.")
 
     if not os.path.exists(FIXED_OWL_FILE):
         logger.error("Fixed OWL file not found at %s.", FIXED_OWL_FILE)
         return
 
+    logger.info("Starting KM translation process.")
     graph = load_ontology(logger)
     object_map = extract_labels_and_ids(graph, logger)
-
-    classes = list(graph.subjects(rdflib.RDF.type, rdflib.OWL.Class))
-    individuals = [(s, o) for s, o in graph.subject_objects(rdflib.RDF.type)
-                   if o != rdflib.OWL.Class and (o, rdflib.RDF.type, rdflib.OWL.Class) in graph]
-    properties = list(graph.subjects(rdflib.RDF.type, rdflib.OWL.ObjectProperty))
-    assertions = [("class", uri) for uri in classes] + \
-                 [("property", uri) for uri in properties] + \
-                 [("individual", (ind_uri, class_uri)) for ind_uri, class_uri in individuals]
-
-    logger.info("Found %d classes, %d individuals, %d properties.", len(classes), len(individuals), len(properties))
-
-    num_processes = args.num_processes if args.num_processes else cpu_count()
     km_generator = KMSyntaxGenerator(graph, object_map, logger)
+    assertions = preprocess(graph)
     translated_assertions = translate_assertions(assertions, km_generator)
     processor = OWLGraphProcessor(km_generator, graph, object_map, translated_assertions, args, num_processes, logger)
     processor.run()

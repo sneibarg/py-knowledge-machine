@@ -132,20 +132,7 @@ class KMSyntaxGenerator:
         return expr
 
     def get_referenced_assertions(self, assertion):
-        assertion_type, uri = assertion
-        self.logger.info("Extracting referenced assertions for %s %s...", assertion_type, uri)
-        if assertion_type == "class":
-            expr = self.class_to_km(uri)
-        elif assertion_type == "property":
-            expr = self.property_to_km(uri)
-        elif assertion_type == "individual":
-            ind_uri, class_uri = uri
-            expr = self.individual_to_km(ind_uri)
-        else:
-            self.logger.error("Unknown assertion type: %s", assertion_type)
-            raise ValueError(f"Unknown type: {assertion_type}")
-
-        clean_assertion = re.sub(r'"[^"]*"', '', expr)
+        clean_assertion = re.sub(r'"[^"]*"', '', assertion)
         self.logger.info("Cleaned assertion: %s...", clean_assertion[:100])
         symbols = re.findall(r'[-\w]+', clean_assertion)
         referenced_frames = set(sym for sym in symbols if sym not in BUILT_IN_FRAMES)
