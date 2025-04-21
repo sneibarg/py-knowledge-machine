@@ -1,6 +1,7 @@
 import argparse
 import os
 import rdflib
+import sexpdata
 from datetime import datetime
 from multiprocessing import Pool, cpu_count, Manager
 from config import FIXED_OWL_FILE
@@ -10,6 +11,29 @@ from ontology_loader import load_ontology
 from preprocess import preprocess_owl_file
 from rest_client import send_to_km
 from utils import extract_labels_and_ids
+
+
+def pretty_print_sexp(sexp, indent=0):
+    if isinstance(sexp, list):
+        if not sexp:
+            return '()'
+        result = '(\n'
+        for item in sexp:
+            result += '  ' * (indent + 1) + pretty_print_sexp(item, indent + 1) + '\n'
+        result += '  ' * indent + ')'
+        return result
+    elif isinstance(sexp, sexpdata.Symbol):
+        return sexp.value()
+    else:
+        return str(sexp)
+
+
+def pretty_print(expr):
+    try:
+        parsed = sexpdata.loads(expr)
+        return pretty_print_sexp(parsed)
+    except Exception as e:
+        return f"Error pretty-printing: {e}\n{expr}"
 
 
 def process_items(items, item_type, generator, process_id, timestamp, args):
@@ -40,21 +64,33 @@ def process_items(items, item_type, generator, process_id, timestamp, args):
 
 
 class OWLGraphProcessor:
-    def __init__(self, graph, object_map, assertions, args, num_workers=4):
+    def __init__(self, graph, object_map, assertions, args, num_workers=4, parallel_deps=False):
         self.graph = graph
         self.object_map = object_map
         self.assertions = assertions
         self.args = args
         self.km_generator = KMSyntaxGenerator(graph, object_map)
-        self.dependencies = {}
-        for assertion in assertions:
-            self.dependencies[assertion] = self.km_generator.get_referenced_assertions(assertion)
         self.manager = Manager()
         self.successfully_sent = self.manager.dict()
         self.pool = Pool(processes=num_workers)
+        self.dependencies = self.compute_dependencies(parallel_deps, num_workers)
+
+    def compute_dependencies(self, parallel_deps, num_workers):
+        dependencies = {}
+        if parallel_deps:
+            with Pool(processes=num_workers) as temp_pool:
+                results = temp_pool.map(self._compute_deps_worker, self.assertions)
+            for assertion, deps in zip(self.assertions, results):
+                dependencies[assertion] = deps
+        else:
+            for assertion in self.assertions:
+                dependencies[assertion] = self.km_generator.get_referenced_assertions(assertion)
+        return dependencies
+
+    def _compute_deps_worker(self, assertion):
+        return self.km_generator.get_referenced_assertions(assertion)
 
     def get_ready_assertions(self):
-        """Return assertions whose dependencies have been satisfied."""
         ready = []
         for assertion in self.assertions:
             deps = self.dependencies.get(assertion, [])
@@ -63,7 +99,6 @@ class OWLGraphProcessor:
         return ready
 
     def process_assertion(self, assertion):
-        """Process a single assertion based on its type."""
         type, uri = assertion
         if type == "class":
             expr = self.km_generator.class_to_km(uri)
@@ -83,7 +118,6 @@ class OWLGraphProcessor:
             return False
 
     def run(self):
-        """Process all assertions, respecting dependencies."""
         while True:
             ready_assertions = self.get_ready_assertions()
             if not ready_assertions:
@@ -104,6 +138,8 @@ def main():
     parser.add_argument("--num-processes", type=int, help="Specify the number of processes to fork.")
     parser.add_argument("--use-graph-processor", action="store_true",
                         help="Use the new OWLGraphProcessor for processing.")
+    parser.add_argument("--parallel-deps", action="store_true",
+                        help="Compute dependencies in parallel for OWLGraphProcessor.")
     args = parser.parse_args()
 
     logger = setup_logging("main", args.debug)
@@ -134,11 +170,14 @@ def main():
             assertions.append(("individual", (ind_uri, class_uri)))
 
         num_processes = args.num_processes if args.num_processes else cpu_count()
-        processor = OWLGraphProcessor(graph, object_map, assertions, args, num_workers=num_processes)
+        processor = OWLGraphProcessor(graph, object_map, assertions, args,
+                                      num_workers=num_processes, parallel_deps=args.parallel_deps)
         processor.run()
-
         total_expressions = len(processor.successfully_sent)
     else:
+        property_results = []
+        class_results = []
+        individual_results = []
         if args.single_thread:
             logger.info("Running in single-threaded mode.")
             property_results = process_items(properties, "property", km_generator, 0, timestamp, args)

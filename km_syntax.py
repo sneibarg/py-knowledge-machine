@@ -263,7 +263,6 @@ class KMSyntaxGenerator:
         return prerequisites
 
     def get_uri_type(self, uri):
-        """Determine the type of a URI (class, property, or individual)."""
         if (uri, rdflib.RDF.type, rdflib.OWL.Class) in self.graph:
             return "class"
         elif (uri, rdflib.RDF.type, rdflib.OWL.ObjectProperty) in self.graph:
@@ -275,7 +274,6 @@ class KMSyntaxGenerator:
             return None
 
     def get_referenced_assertions(self, assertion):
-        """Get the list of (type, uri) dependencies referenced in the KM expression for an assertion."""
         type, uri = assertion
         if type == "class":
             expr = self.class_to_km(uri)
@@ -290,10 +288,10 @@ class KMSyntaxGenerator:
         clean_assertion = re.sub(r'"[^"]*"', '', expr)
         symbols = re.findall(r'[-\w]+', clean_assertion)
         referenced_frames = set(sym for sym in symbols if sym not in BUILT_IN_FRAMES)
+
         name_to_uri = {name: u for u, name in self.resource_names.items()}
         referenced_uris = [name_to_uri[frame_name] for frame_name in referenced_frames if frame_name in name_to_uri]
 
-        # Determine the type of each referenced URI and create assertion tuples
         ref_assertions = []
         for ref_uri in referenced_uris:
             ref_type = self.get_uri_type(ref_uri)
@@ -302,7 +300,6 @@ class KMSyntaxGenerator:
             elif ref_type == "property":
                 ref_assertions.append(("property", ref_uri))
             elif ref_type == "individual":
-                # For individuals, include all (ind_uri, class_uri) pairs from the assertions
                 classes = [o for s, o in self.graph.subject_objects(rdflib.RDF.type)
                            if s == ref_uri and (o, rdflib.RDF.type, rdflib.OWL.Class) in self.graph]
                 for class_uri in classes:
