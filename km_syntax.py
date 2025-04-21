@@ -12,7 +12,7 @@ STANDARD_PREDICATES = {
     rdflib.RDF.type: "instance-of",
     rdflib.RDFS.subClassOf: "superclasses",
     rdflib.RDFS.label: "label",
-    rdflib.OWL.sameAs: "same_as",
+    rdflib.OWL.sameAs: "same-as",
 }
 BUILT_IN_FRAMES = {
     "instance-of", "superclasses", "label", "Slot", "Class", "Thing", "has",

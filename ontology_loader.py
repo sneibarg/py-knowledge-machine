@@ -45,4 +45,3 @@ def load_ontology(logger):
     except Exception as e:
         logger.error("Failed to parse ontology: %s", str(e))
         raise
-    

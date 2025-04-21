@@ -33,6 +33,7 @@ def process_assertion(km_generator, assertion, successfully_sent, dry_run):
             worker_logger.error("Unknown assertion type: %s", assertion_type)
             raise ValueError(f"Unknown type: {assertion_type}")
 
+        worker_logger.info(f"Getting referenced assertions for assertion: {expr}")
         refs = km_generator.get_referenced_assertions(assertion)
         worker_logger.info("Found %d referenced assertions.", len(refs))
         for ref in refs:
