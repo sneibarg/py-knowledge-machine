@@ -99,15 +99,15 @@ def extract_labels_and_ids(graph, logger):
 
 
 class OWLGraphProcessor:
-    def __init__(self, pool, km_generator, graph, object_map, assertions, args, logger):
+    def __init__(self, num_processes, km_generator, graph, object_map, assertions, args, graph_logger):
         self.graph = graph
         self.object_map = object_map
         self.args = args
         self.assertions = assertions
         self.manager = Manager()
         self.successfully_sent = self.manager.dict()
-        self.pool = pool
-        self.logger = logger.getChild('OWLGraphProcessor')
+        self.pool = Pool(processes=num_processes, initializer=init_worker, initargs=(args.debug,))
+        self.logger = graph_logger.getChild('OWLGraphProcessor')
         self.km_generator = km_generator
         self.logger.info("Initialized with %d assertions.", len(assertions))
 
@@ -161,7 +161,9 @@ def main():
         logger.info(f"Translated {str(len(translated_assertions))} in {str(elapsed_time)} seconds.")
         sys.exit(0)
 
-    processor = OWLGraphProcessor(pool, km_generator, graph, object_map, translated_assertions, args, logger)
+    pool.close()
+    pool.join()
+    processor = OWLGraphProcessor(num_processes, km_generator, graph, object_map, translated_assertions, args, logger)
     processor.run()
 
     total_expressions = len(processor.successfully_sent)
