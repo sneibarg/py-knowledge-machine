@@ -157,7 +157,7 @@ def main():
     assertions = preprocess(graph)
     translate_func = partial(translate_assertions, assertions, km_generator)
     start_time = time.time()
-    translated_assertions = pool.map(translate_func, assertions)
+    translated_assertions = pool.map(translate_func, assertions, chunksize=int(num_processes * 4))
     elapsed_time = time.time() - start_time
     if args.translate_only:
         logger.info(f"Translated {str(len(translated_assertions))} in {str(elapsed_time)} seconds.")
