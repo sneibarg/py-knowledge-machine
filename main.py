@@ -100,15 +100,15 @@ class OWLGraphProcessor:
 def main():
     parser = argparse.ArgumentParser(description="Translate OpenCyc OWL to KM KRL.")
     parser.add_argument("--debug", action="store_true", help="Enable debug output.")
-    parser.add_argument("--dry-run", action="store_true", help="Skip sending requests to KM server.")
-    parser.add_argument("--num-processes", type=int, help="Number of processes to use.")
+    parser.add_argument("--dry-run", action="store_true", help="Skip sending requests.")
+    parser.add_argument("--num-processes", type=int, help="Number of processes.")
     args = parser.parse_args()
 
-    logger = setup_logging("main", args.debug, pid=True)
-    logger.info(f"[PID {os.getpid()}] Starting KM translation process.")
+    logger = setup_logging(args.debug)
+    logger.info("Starting KM translation process.")
 
-    graph = load_ontology()
-    object_map = extract_labels_and_ids(graph)
+    graph = load_ontology(logger)
+    object_map = extract_labels_and_ids(graph, logger)
 
     classes = list(graph.subjects(rdflib.RDF.type, rdflib.OWL.Class))
     individuals = [(s, o) for s, o in graph.subject_objects(rdflib.RDF.type)
@@ -118,15 +118,14 @@ def main():
                  [("property", uri) for uri in properties] + \
                  [("individual", (ind_uri, class_uri)) for ind_uri, class_uri in individuals]
 
-    logger.info(
-        f"[PID {os.getpid()}] Found {len(classes)} classes, {len(individuals)} individuals, {len(properties)} properties.")
+    logger.info("Found %d classes, %d individuals, %d properties.", len(classes), len(individuals), len(properties))
 
     num_processes = args.num_processes if args.num_processes else cpu_count()
-    processor = OWLGraphProcessor(graph, object_map, assertions, args, num_processes)
+    processor = OWLGraphProcessor(graph, object_map, assertions, args, num_processes, logger)
     processor.run()
 
     total_expressions = len(processor.successfully_sent)
-    logger.info(f"[PID {os.getpid()}] Processed and sent {total_expressions} KRL expressions in total.")
+    logger.info("Processed and sent %d KRL expressions in total.", total_expressions)
 
 
 if __name__ == "__main__":
