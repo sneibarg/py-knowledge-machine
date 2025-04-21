@@ -39,12 +39,12 @@ def process_assertion(km_generator, assertion, successfully_sent, dry_run):
 
 
 class OWLGraphProcessor:
-    def __init__(self, graph, object_map, args, num_workers):
+    def __init__(self, graph, object_map, assertions, args, num_workers):
         self.graph = graph
         self.object_map = object_map
         self.args = args
-        self.km_generator = KMSyntaxGenerator(graph, object_map)
-        self.assertions = []
+
+        self.assertions = assertions
         self.dependencies = {}
         self.dependency_aware = not args.single_thread
         self.manager = Manager()
@@ -55,6 +55,7 @@ class OWLGraphProcessor:
             initargs=(args.debug,)
         )
         self.logger = logging.getLogger("OWLGraphProcessor")
+        self.km_generator = KMSyntaxGenerator(graph, object_map, self.logger)
         self.logger.setLevel(logging.INFO if not args.debug else logging.DEBUG)
         handler = logging.FileHandler("logs/main.log")
         handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
@@ -104,7 +105,7 @@ class OWLGraphProcessor:
                     ready.append(assertion)
             return ready
         else:
-            return self.assertions  # All assertions are ready if not dependency-aware
+            return self.assertions
 
     def process_assertion(self, assertion):
         """Process a single assertion and return the result."""

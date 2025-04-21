@@ -5,7 +5,6 @@ import re
 from logging_setup import setup_logging
 from utils import rdf_to_krl_name
 
-
 cyc_annot_label = rdflib.URIRef("http://sw.cyc.com/CycAnnotations_v1#label")
 TYPE_PREDICATES = [
     rdflib.RDF.type,
@@ -24,10 +23,10 @@ BUILT_IN_FRAMES = {
 
 
 class KMSyntaxGenerator:
-    def __init__(self, graph, object_map):
+    def __init__(self, graph, object_map, logger=None):
         self.graph = graph
         self.object_map = object_map
-        self.logger = setup_logging("km_syntax_generator")
+        self.logger = logger if logger is not None else setup_logging("km_syntax_generator")
         self.resource_names = self.build_resource_names()
         self.predicate_names = self.build_predicate_names()
 
@@ -48,7 +47,7 @@ class KMSyntaxGenerator:
         names = STANDARD_PREDICATES.copy()
         used_names = set(names.values())
         for pred in self.graph.predicates():
-            if pred in TYPE_PREDICATES:  # Ensure type predicates map to "instance-of"
+            if pred in TYPE_PREDICATES:
                 names[pred] = "instance-of"
             elif pred not in names:
                 if pred in self.object_map and 'label' in self.object_map[pred]:
@@ -87,28 +86,6 @@ class KMSyntaxGenerator:
             expr += f" ({slot} ({' '.join(unique_values)}))"
         expr += ")"
         return expr
-
-    def get_prerequisite_assertions(self, assertion):
-        """Return a list of prerequisite assertions for the given KM assertion using pattern matching."""
-        clean_assertion = re.sub(r'"[^"]*"', '', assertion)
-        symbols = re.findall(r'[-\w]+', clean_assertion)
-        subject = symbols[0] if symbols else None
-        referenced_frames = set(
-            sym for sym in symbols
-            if sym != subject and sym not in BUILT_IN_FRAMES
-        )
-        name_to_uri = {name: uri for uri, name in self.resource_names.items()}
-        prerequisites = []
-        for frame_name in referenced_frames:
-            if frame_name in name_to_uri:
-                uri = name_to_uri[frame_name]
-                if (uri, rdflib.RDF.type, rdflib.OWL.Class) in self.graph:
-                    prerequisites.append(self.class_to_km(uri))
-                elif (uri, rdflib.RDF.type, rdflib.OWL.ObjectProperty) in self.graph:
-                    prerequisites.append(self.property_to_km(uri))
-                else:
-                    prerequisites.append(self.individual_to_km(uri))
-        return prerequisites
 
     def class_to_km(self, class_uri):
         """Convert an OWL class to KM syntax."""
@@ -149,131 +126,6 @@ class KMSyntaxGenerator:
         expr += ")"
         return expr
 
-    @staticmethod
-    def aggregate_to_km(element_type, number_of_elements=None):
-        """Generate an Aggregate frame (Section 29.6)."""
-        expr = "(a Aggregate with"
-        expr += f" (element-type ({element_type}))"
-        if number_of_elements:
-            expr += f" (number-of-elements ({number_of_elements}))"
-        expr += ")"
-        return expr
-
-    @staticmethod
-    def quoted_expression(expr):
-        """Generate a quoted expression (Section 29.6)."""
-        return f"'{expr}"
-
-    @staticmethod
-    def forall_expression(var, collection, body, where=None):
-        """Generate a forall expression (Section 29)."""
-        expr = f"(forall {var} in {collection}"
-        if where:
-            expr += f" where {where}"
-        expr += f" {body})"
-        return expr
-
-    @staticmethod
-    def _join_expressions(expressions):
-        """Join a list of expressions into a space-separated string."""
-        return ' '.join(str(expr) for expr in expressions)
-
-    def arithmetic_expression(self, operator, *operands):
-        """Generate an arithmetic expression, e.g., (+ 1 2)."""
-        return f"({operator} {self._join_expressions(operands)})"
-
-    def logical_expression(self, operator, *operands):
-        """Generate a logical expression, e.g., (and A B)."""
-        return f"({operator} {self._join_expressions(operands)})"
-
-    @staticmethod
-    def unification_expression(type_, expr1, expr2):
-        """Generate a unification expression based on type (set, eager, bag)."""
-        if type_ == "set":
-            return f"(({expr1}) && ({expr2}))"
-        elif type_ == "eager":
-            return f"({expr1} &! {expr2})"
-        elif type_ == "bag":
-            return f"(({expr1}) || ({expr2}))"
-        else:
-            raise ValueError(f"Unknown unification type: {type_}")
-
-    @staticmethod
-    def if_expression(condition, then_expr, else_expr=None):
-        """Generate an if-then-else expression."""
-        expr = f"(if {condition} then {then_expr}"
-        if else_expr:
-            expr += f" else {else_expr}"
-        expr += ")"
-        return expr
-
-    @staticmethod
-    def user_defined_infix(operator, left, right):
-        """Generate a user-defined infix operator expression."""
-        return f"({left} {operator} {right})"
-
-    def oneof_expression(self, *options):
-        """Generate a oneof expression."""
-        return f"(oneof {self._join_expressions(options)})"
-
-    def prototype_to_km(self, class_name, slots=None):
-        """Generate a prototype expression."""
-        expr = f"(a-prototype {class_name}"
-        if slots:
-            expr += f" with {self._join_expressions(slots)}"
-        expr += ")"
-        return expr
-
-    def aggregation_function(self, func_name, *args):
-        """Generate a user-defined aggregation function expression."""
-        return f"({func_name} {self._join_expressions(args)})"
-
-    def get_prerequisite_assertions(self, assertion):
-        """Return a list of prerequisite assertions for the given KM assertion using pattern matching.
-
-        Args:
-            assertion (str): A KM code string, e.g., '(fido has (instance-of (Dog)) (color ("brown")))'.
-
-        Returns:
-            list[str]: A list of KM code strings representing the prerequisite assertions.
-        """
-        clean_assertion = re.sub(r'"[^"]*"', '', assertion)
-        symbols = re.findall(r'[-\w]+', clean_assertion)
-        subject = symbols[0] if symbols else None
-        referenced_frames = set(
-            sym for sym in symbols
-            if sym != subject and sym not in BUILT_IN_FRAMES
-        )
-
-        name_to_uri = {name: uri for uri, name in self.resource_names.items()}
-        prerequisites = []
-        for frame_name in referenced_frames:
-            if frame_name in name_to_uri:
-                uri = name_to_uri[frame_name]
-
-                if (uri, rdflib.RDF.type, rdflib.OWL.Class) in self.graph:
-                    prerequisites.append(self.class_to_km(uri))
-                elif (uri, rdflib.RDF.type, rdflib.OWL.ObjectProperty) in self.graph:
-                    prerequisites.append(self.property_to_km(uri))
-                else:
-                    classes = list(self.graph.objects(uri, rdflib.RDF.type))
-                    if classes:
-                        class_uri = classes[0]
-                        prerequisites.append(self.individual_to_km(class_uri))
-
-        return prerequisites
-
-    def get_uri_type(self, uri):
-        if (uri, rdflib.RDF.type, rdflib.OWL.Class) in self.graph:
-            return "class"
-        elif (uri, rdflib.RDF.type, rdflib.OWL.ObjectProperty) in self.graph:
-            return "property"
-        else:
-            types = list(self.graph.objects(uri, rdflib.RDF.type))
-            if types and any((t, rdflib.RDF.type, rdflib.OWL.Class) in self.graph for t in types):
-                return "individual"
-            return None
-
     def get_referenced_assertions(self, assertion):
         assertion_type, uri = assertion
         if assertion_type == "class":
@@ -307,3 +159,15 @@ class KMSyntaxGenerator:
                 for class_uri in classes:
                     ref_assertions.append(("individual", (ref_uri, class_uri)))
         return ref_assertions
+
+    def get_uri_type(self, uri):
+        if (uri, rdflib.RDF.type, rdflib.OWL.Class) in self.graph:
+            return "class"
+        elif (uri, rdflib.RDF.type, rdflib.OWL.ObjectProperty) in self.graph:
+            return "property"
+        else:
+            types = list(self.graph.objects(uri, rdflib.RDF.type))
+            if types and any((t, rdflib.RDF.type, rdflib.OWL.Class) in self.graph for t in types):
+                return "individual"
+            return None
+
