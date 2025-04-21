@@ -52,6 +52,7 @@ class OWLGraphProcessor:
         self.successfully_sent = self.manager.dict()
         self.logger = setup_logging("owl_graph_processor", args.debug)
         self.logger.info("Starting dependency loading.")
+        self.pool = Pool(processes=num_workers)
         start_time = time.time()
         self.dependencies = self.compute_dependencies(parallel_deps, num_workers)
         elapsed_time = time.time() - start_time
@@ -60,8 +61,8 @@ class OWLGraphProcessor:
     def compute_dependencies(self, parallel_deps, num_workers):
         dependencies = {}
         if parallel_deps:
-            with Pool(processes=num_workers) as temp_pool:
-                results = temp_pool.map(self._compute_deps_worker, self.assertions)
+            self.logger.info("Parallel dependency computing enabled.")
+            results = self.pool.map(self._compute_deps_worker, self.assertions)
             for assertion, deps in zip(self.assertions, results):
                 dependencies[assertion] = deps
         else:
@@ -82,35 +83,36 @@ class OWLGraphProcessor:
         return ready
 
     def process_assertion(self, assertion):
-        type, uri = assertion
-        if type == "class":
+        assertion_type, uri = assertion
+        if assertion_type == "class":
             expr = self.km_generator.class_to_km(uri)
-        elif type == "property":
+        elif assertion_type == "property":
             expr = self.km_generator.property_to_km(uri)
-        elif type == "individual":
+        elif assertion_type == "individual":
             ind_uri, class_uri = uri
             expr = self.km_generator.individual_to_km(ind_uri)
         else:
-            raise ValueError(f"Unknown type: {type}")
+            self.logger.error(f"Unknown type: {assertion_type}")
+            raise ValueError(f"Unknown type: {assertion_type}")
         result = send_to_km(expr, dry_run=self.args.dry_run)
         if result.get("success", False):
             self.successfully_sent[assertion] = expr
             return True
         else:
-            print(f"Failed to process {assertion}: {result}")
+            self.logger.error(f"Failed to process {assertion}: {result}")
             return False
 
     def run(self):
         while True:
             ready_assertions = self.get_ready_assertions()
             if not ready_assertions:
-                print("No more assertions to process or dependencies unresolved.")
+                self.logger.info("No more assertions to process or dependencies unresolved.")
                 break
             results = self.pool.map(self.process_assertion, ready_assertions)
             self.assertions = [a for a in self.assertions if a not in ready_assertions]
         self.pool.close()
         self.pool.join()
-        print("Processing complete.")
+        self.logger.info("Processing complete.")
 
 
 def main():

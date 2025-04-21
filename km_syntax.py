@@ -275,16 +275,17 @@ class KMSyntaxGenerator:
             return None
 
     def get_referenced_assertions(self, assertion):
-        type, uri = assertion
-        if type == "class":
+        assertion_type, uri = assertion
+        if assertion_type == "class":
             expr = self.class_to_km(uri)
-        elif type == "property":
+        elif assertion_type == "property":
             expr = self.property_to_km(uri)
-        elif type == "individual":
+        elif assertion_type == "individual":
             ind_uri, class_uri = uri
             expr = self.individual_to_km(ind_uri)
         else:
-            raise ValueError(f"Unknown type: {type}")
+            self.logger.error(f"Unknown type: {assertion_type}")
+            raise ValueError(f"Unknown type: {assertion_type}")
 
         clean_assertion = re.sub(r'"[^"]*"', '', expr)
         self.logger.info(f"Assertion extracted as: {clean_assertion}")
