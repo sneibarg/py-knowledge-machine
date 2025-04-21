@@ -8,11 +8,12 @@ from core import setup_logging, send_to_km, FIXED_OWL_FILE
 from km_syntax import KMSyntaxGenerator
 from ontology_loader import load_ontology
 
+logger = None
+
 
 def init_worker(debug):
     """Initialize worker process with a logger."""
-    global worker_logger
-    logger = setup_logging(debug)
+    global logger, worker_logger
     worker_logger = logger.getChild(f'Worker.{current_process().name}')
     worker_logger.info("Initialized worker.")
 
@@ -116,6 +117,7 @@ def main():
     parser.add_argument("--num-processes", type=int, help="Number of processes to use.")
     args = parser.parse_args()
 
+    global logger
     logger = setup_logging(args.debug)
     logger.info("Starting KM translation process.")
 
