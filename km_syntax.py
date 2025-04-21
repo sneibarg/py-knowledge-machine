@@ -1,9 +1,8 @@
 import rdflib
 import json
 import re
-
-from logging_setup import setup_logging
-from utils import rdf_to_krl_name
+import os
+from core import setup_logging
 
 cyc_annot_label = rdflib.URIRef("http://sw.cyc.com/CycAnnotations_v1#label")
 TYPE_PREDICATES = [
@@ -22,16 +21,25 @@ BUILT_IN_FRAMES = {
 }
 
 
+# Utility Functions from utils.py
+def rdf_to_krl_name(uri):
+    """Convert an RDF URI to a KM-compatible name."""
+    return str(uri).split('/')[-1]
+
+
 class KMSyntaxGenerator:
     def __init__(self, graph, object_map, logger=None):
         self.graph = graph
         self.object_map = object_map
-        self.logger = logger if logger is not None else setup_logging("km_syntax_generator")
+        self.logger = logger if logger else setup_logging("km_syntax", pid=True)
         self.resource_names = self.build_resource_names()
         self.predicate_names = self.build_predicate_names()
+        self.logger.info(
+            f"[PID {os.getpid()}] Initialized KMSyntaxGenerator with {len(self.resource_names)} resources.")
 
     def build_resource_names(self):
         names = {}
+        self.logger.info(f"[PID {os.getpid()}] Building resource names...")
         for s in self.graph.subjects():
             if s in self.object_map and 'label' in self.object_map[s]:
                 names[s] = self.object_map[s]['label']
@@ -41,11 +49,13 @@ class KMSyntaxGenerator:
                     names[s] = next((l for l in labels if l[0].isupper()), labels[0])
                 else:
                     names[s] = rdf_to_krl_name(s)
+        self.logger.info(f"[PID {os.getpid()}] Completed building {len(names)} resource names.")
         return names
 
     def build_predicate_names(self):
         names = STANDARD_PREDICATES.copy()
         used_names = set(names.values())
+        self.logger.info(f"[PID {os.getpid()}] Building predicate names...")
         for pred in self.graph.predicates():
             if pred in TYPE_PREDICATES:
                 names[pred] = "instance-of"
@@ -61,6 +71,7 @@ class KMSyntaxGenerator:
                     i += 1
                 names[pred] = name
                 used_names.add(name)
+        self.logger.info(f"[PID {os.getpid()}] Completed building {len(names)} predicate names.")
         return names
 
     def get_resource_name(self, resource):
@@ -72,41 +83,37 @@ class KMSyntaxGenerator:
     def individual_to_km(self, ind_uri):
         ind_name = self.get_resource_name(ind_uri)
         slots = {}
+        self.logger.debug(f"[PID {os.getpid()}] Converting individual {ind_name} to KM syntax...")
         for prop, obj in self.graph.predicate_objects(ind_uri):
             prop_name = self.get_slot_name(prop)
-            if isinstance(obj, rdflib.URIRef):
-                value = self.get_resource_name(obj)
-            else:
-                value = json.dumps(str(obj))
+            value = self.get_resource_name(obj) if isinstance(obj, rdflib.URIRef) else json.dumps(str(obj))
             slots.setdefault(prop_name, []).append(value)
-
         expr = f"({ind_name} has"
         for slot, values in slots.items():
             unique_values = list(dict.fromkeys(values))
             expr += f" ({slot} ({' '.join(unique_values)}))"
         expr += ")"
+        self.logger.debug(f"[PID {os.getpid()}] Generated KM for individual: {expr[:100]}...")
         return expr
 
     def class_to_km(self, class_uri):
-        """Convert an OWL class to KM syntax."""
         frame_name = self.get_resource_name(class_uri)
         slots = {}
+        self.logger.debug(f"[PID {os.getpid()}] Converting class {frame_name} to KM syntax...")
         for pred, obj in self.graph.predicate_objects(class_uri):
             slot_name = self.get_slot_name(pred)
-            if isinstance(obj, rdflib.URIRef):
-                value = self.get_resource_name(obj)
-            else:
-                value = json.dumps(str(obj))
+            value = self.get_resource_name(obj) if isinstance(obj, rdflib.URIRef) else json.dumps(str(obj))
             slots.setdefault(slot_name, []).append(value)
         expr = f"({frame_name} has"
         for slot, values in slots.items():
             expr += f" ({slot} ({' '.join(values)}))"
         expr += ")"
+        self.logger.debug(f"[PID {os.getpid()}] Generated KM for class: {expr[:100]}...")
         return expr
 
     def property_to_km(self, prop_uri):
-        """Generate a KM frame for an OWL ObjectProperty."""
         prop_name = self.get_resource_name(prop_uri)
+        self.logger.debug(f"[PID {os.getpid()}] Converting property {prop_name} to KM syntax...")
         labels = [json.dumps(str(label)) for label in self.graph.objects(prop_uri, rdflib.RDFS.label)]
         domains = [self.get_resource_name(d) for d in self.graph.objects(prop_uri, rdflib.RDFS.domain)]
         ranges = [self.get_resource_name(r) for r in self.graph.objects(prop_uri, rdflib.RDFS.range)]
@@ -124,10 +131,12 @@ class KMSyntaxGenerator:
         if inverses:
             expr += f" (inverse ({' '.join(inverses)}))"
         expr += ")"
+        self.logger.debug(f"[PID {os.getpid()}] Generated KM for property: {expr[:100]}...")
         return expr
 
     def get_referenced_assertions(self, assertion):
         assertion_type, uri = assertion
+        self.logger.info(f"[PID {os.getpid()}] Extracting referenced assertions for {assertion_type} {uri}...")
         if assertion_type == "class":
             expr = self.class_to_km(uri)
         elif assertion_type == "property":
@@ -136,11 +145,11 @@ class KMSyntaxGenerator:
             ind_uri, class_uri = uri
             expr = self.individual_to_km(ind_uri)
         else:
-            self.logger.error(f"Unknown type: {assertion_type}")
+            self.logger.error(f"[PID {os.getpid()}] Unknown assertion type: {assertion_type}")
             raise ValueError(f"Unknown type: {assertion_type}")
 
         clean_assertion = re.sub(r'"[^"]*"', '', expr)
-        self.logger.info(f"Assertion extracted as: {clean_assertion}")
+        self.logger.info(f"[PID {os.getpid()}] Cleaned assertion: {clean_assertion[:100]}...")
         symbols = re.findall(r'[-\w]+', clean_assertion)
         referenced_frames = set(sym for sym in symbols if sym not in BUILT_IN_FRAMES)
         name_to_uri = {name: u for u, name in self.resource_names.items()}
@@ -158,6 +167,7 @@ class KMSyntaxGenerator:
                            if s == ref_uri and (o, rdflib.RDF.type, rdflib.OWL.Class) in self.graph]
                 for class_uri in classes:
                     ref_assertions.append(("individual", (ref_uri, class_uri)))
+        self.logger.info(f"[PID {os.getpid()}] Found {len(ref_assertions)} referenced assertions.")
         return ref_assertions
 
     def get_uri_type(self, uri):
@@ -170,4 +180,3 @@ class KMSyntaxGenerator:
             if types and any((t, rdflib.RDF.type, rdflib.OWL.Class) in self.graph for t in types):
                 return "individual"
             return None
-
