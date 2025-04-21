@@ -1,12 +1,12 @@
 import argparse
 import os
 import time
-from multiprocessing import Pool, cpu_count, Manager, current_process
-from functools import partial
 import rdflib
 from core import setup_logging, send_to_km
 from km_syntax import KMSyntaxGenerator
 from ontology_loader import load_ontology
+from multiprocessing import Pool, cpu_count, Manager, current_process
+from functools import partial
 
 
 def init_worker(debug, parent_logger):
@@ -52,9 +52,8 @@ def process_assertion(km_generator, assertion, successfully_sent, dry_run):
         return False
 
 
-def extract_labels_and_ids(graph):
+def extract_labels_and_ids(graph, logger):
     """Extract labels and external IDs from the graph (from utils.py)."""
-    logger = setup_logging("utils", pid=True)
     logger.info(f"[PID {os.getpid()}] Extracting labels and IDs from graph...")
     result = {}
     for subject in graph.subjects():
@@ -64,12 +63,12 @@ def extract_labels_and_ids(graph):
             (str(obj) for obj in graph.objects(subject, rdflib.OWL.sameAs) if isinstance(obj, rdflib.URIRef)), None)
         if label or external_id:
             result[subject] = {'label': label, 'external_id': external_id}
-    logger.info(f"[PID {os.getpid()}] Extracted labels/IDs for {len(result)} resources.")
+    logger.info(f"Extracted labels/IDs for {len(result)} resources.")
     return result
 
 
 class OWLGraphProcessor:
-    def __init__(self, graph, object_map, assertions, args, num_workers):
+    def __init__(self, logger, graph, object_map, assertions, args, num_workers):
         self.graph = graph
         self.object_map = object_map
         self.args = args
@@ -77,9 +76,9 @@ class OWLGraphProcessor:
         self.manager = Manager()
         self.successfully_sent = self.manager.dict()
         self.pool = Pool(processes=num_workers, initializer=init_worker, initargs=(args.debug,))
-        self.logger = setup_logging("processor", debug=args.debug, pid=True)
+        self.logger = logger
         self.km_generator = KMSyntaxGenerator(graph, object_map, self.logger)
-        self.logger.info(f"[PID {os.getpid()}] Initialized OWLGraphProcessor with {len(assertions)} assertions.")
+        self.logger.info(f"Initialized OWLGraphProcessor with {len(assertions)} assertions.")
 
     def run(self):
         """Run the processing with multi-processing."""
@@ -121,7 +120,7 @@ def main():
     logger.info("Found %d classes, %d individuals, %d properties.", len(classes), len(individuals), len(properties))
 
     num_processes = args.num_processes if args.num_processes else cpu_count()
-    processor = OWLGraphProcessor(graph, object_map, assertions, args, num_processes, logger)
+    processor = OWLGraphProcessor(logger, graph, object_map, assertions, args, num_processes)
     processor.run()
 
     total_expressions = len(processor.successfully_sent)
