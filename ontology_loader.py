@@ -29,19 +29,19 @@ def preprocess_owl_file(logger):
 
 def load_ontology(logger):
     """Load the ontology, preprocessing if necessary."""
-    logger = logger.getChild('OntologyLoader')
+    onto_logger = logger.getChild('OntologyLoader')
     if not os.path.exists(FIXED_OWL_FILE):
-        logger.info("Fixed OWL file not found. Triggering preprocessing.")
+        onto_logger.info("Fixed OWL file not found. Triggering preprocessing.")
         preprocess_owl_file(logger)
     else:
-        logger.info("Using existing fixed OWL file: %s", FIXED_OWL_FILE)
+        onto_logger.info("Using existing fixed OWL file: %s", FIXED_OWL_FILE)
 
-    logger.info("Loading ontology with rdflib...")
+    onto_logger.info("Loading ontology with rdflib...")
     g = rdflib.Graph()
     try:
         g.parse(FIXED_OWL_FILE, format="xml")
-        logger.info("Ontology loaded successfully with %d triples.", len(g))
+        onto_logger.info("Ontology loaded successfully with %d triples.", len(g))
         return g
     except Exception as e:
-        logger.error("Failed to parse ontology: %s", str(e))
+        onto_logger.error("Failed to parse ontology: %s", str(e))
         raise
