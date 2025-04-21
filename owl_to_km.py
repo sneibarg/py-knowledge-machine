@@ -1,5 +1,6 @@
 import argparse
 import os
+import sys
 import time
 from multiprocessing import Pool, cpu_count, Manager, current_process
 from functools import partial
@@ -58,7 +59,6 @@ def process_assertion(km_generator, assertion, successfully_sent, dry_run):
     try:
         refs = km_generator.get_referenced_assertions(assertion)
         worker_logger.info(f"Found {str(len(refs))} referenced assertions for assertion: {assertion}.")
-        
         skip_send = False
         for ref in refs:
             if ref not in successfully_sent:
@@ -133,6 +133,7 @@ def parse_arguments():
     parser.add_argument("--debug", action="store_true", help="Enable debug output.")
     parser.add_argument("--dry-run", action="store_true", help="Skip sending requests to KM server.")
     parser.add_argument("--num-processes", type=int, help="Number of processes to use.")
+    parser.add_argument("--translate-only", action="store_true", help="Translate and log only.")
     return parser.parse_args()
 
 
@@ -144,7 +145,7 @@ def main():
 
     if not os.path.exists(FIXED_OWL_FILE):
         logger.error("Fixed OWL file not found at %s.", FIXED_OWL_FILE)
-        return
+        sys.exit(1)
 
     logger.info("Starting KM translation process.")
     graph = load_ontology(logger)
@@ -152,6 +153,10 @@ def main():
     km_generator = KMSyntaxGenerator(graph, object_map, logger)
     assertions = preprocess(graph)
     translated_assertions = translate_assertions(assertions, km_generator)
+    if args.translate_only:
+        logger.info(f"Translated {str(len(translated_assertions))}.")
+        sys.exit(0)
+
     processor = OWLGraphProcessor(km_generator, graph, object_map, translated_assertions, args, num_processes, logger)
     processor.run()
 
