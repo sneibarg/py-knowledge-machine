@@ -17,7 +17,7 @@ def setup_logging(debug=False):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(LOG_DIR, f"application_{timestamp}.log")
     logging.getLogger('').handlers = []
-    logger = logging.getLogger('app')
+    logger = logging.getLogger('OWL-to-KM')
     logger.setLevel(logging.INFO if not debug else logging.DEBUG)
     formatter = logging.Formatter("%(asctime)s [PID %(process)d] [%(levelname)s] [%(name)s] %(message)s")
     file_handler = logging.FileHandler(log_file)
