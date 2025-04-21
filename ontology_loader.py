@@ -27,21 +27,20 @@ def preprocess_owl_file(logger):
     logger.info(f"[PID {os.getpid()}] Preprocessing complete. Saved as {FIXED_OWL_FILE}")
 
 
-def load_ontology():
+def load_ontology(logger):
     """Load the ontology, preprocessing if necessary."""
-    logger = setup_logging("ontology_loader", pid=True)
     if not os.path.exists(FIXED_OWL_FILE):
-        logger.info(f"[PID {os.getpid()}] Fixed OWL file not found. Triggering preprocessing.")
+        logger.info(f"Fixed OWL file not found. Triggering preprocessing.")
         preprocess_owl_file(logger)
     else:
-        logger.info(f"[PID {os.getpid()}] Using existing fixed OWL file: {FIXED_OWL_FILE}")
+        logger.info(f"Using existing fixed OWL file: {FIXED_OWL_FILE}")
 
-    logger.info(f"[PID {os.getpid()}] Loading ontology with rdflib...")
+    logger.info(f"Loading ontology with rdflib...")
     g = rdflib.Graph()
     try:
         g.parse(FIXED_OWL_FILE, format="xml")
-        logger.info(f"[PID {os.getpid()}] Ontology loaded successfully with {len(g)} triples.")
+        logger.info(f"Ontology loaded successfully with {len(g)} triples.")
         return g
     except Exception as e:
-        logger.error(f"[PID {os.getpid()}] Failed to parse ontology: {str(e)}")
+        logger.error(f"Failed to parse ontology: {str(e)}")
         raise
