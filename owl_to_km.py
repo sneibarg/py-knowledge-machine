@@ -197,7 +197,7 @@ def main():
         logger.info(f"Translated {str(len(translated_assertions))} in {str(elapsed_time)} seconds.")
         sys.exit(0)
 
-    processor = OWLGraphProcessor(logger, km_generator, translated_assertions, pool, args)
+    processor = OWLGraphProcessor(logger, translated_assertions, km_generator, pool, args)
     processor.run()
 
     total_expressions = len(processor.successfully_sent)
