@@ -12,6 +12,7 @@ from functools import partial
 
 logger = None
 worker_logger = None
+km_generator = None
 manager = Manager()
 successfully_sent = manager.dict()
 
@@ -36,14 +37,14 @@ def init_worker(debug):
     worker_logger.info("Initialized worker.")
 
 
-def translate_assertions(assertion_list, km_generator):
+def translate_assertions(assertion_list):
     translated_assertions = []
     for assertion in assertion_list:
         translated_assertions.append(translate_assertion(assertion, km_generator))
     return translated_assertions
 
 
-def translate_assertion(assertion, km_generator):
+def translate_assertion(assertion):
     assertion_type, uri = assertion
     if assertion_type == "class":
         expr = km_generator.class_to_km(uri)
@@ -58,7 +59,7 @@ def translate_assertion(assertion, km_generator):
     return expr
 
 
-def process_assertion(km_generator, assertion, dry_run):
+def process_assertion(assertion, dry_run):
     """
     Process a single assertion if all its dependencies are satisfied.
 
@@ -107,14 +108,23 @@ def extract_labels_and_ids(graph, logger):
     return result
 
 
+def is_ready(assertion, generator):
+    return all(ref in successfully_sent for ref in generator.get_referenced_assertions(assertion))
+
+
 class OWLGraphProcessor:
-    def __init__(self, parent_logger, assertions, km_generator, pool, args):
+    is_ready = None
+
+    def __init__(self, parent_logger, assertions, generator, pool, args):
         self.assertions = assertions
-        self.km_generator = km_generator
+        self.km_generator = generator
         self.pool = pool
         self.args = args
-        self.successfully_sent = successfully_sent  # Shared Manager.dict
+        self.successfully_sent = successfully_sent
         self.logger = parent_logger.getChild('OWL-Graph-Processor')
+
+    def set_readiness_check(self, func):
+        self.is_ready = func
 
     def run(self):
         """
@@ -126,11 +136,11 @@ class OWLGraphProcessor:
         self.logger.info("Starting processing in multi-threaded mode.")
         start_time = time.time()
         remaining_assertions = set(self.assertions)
-
         while remaining_assertions:
+            readiness_results = self.pool.map(partial(self.is_ready, self.km_generator), remaining_assertions)
             ready_assertions = [
-                a for a in remaining_assertions
-                if all(ref in self.successfully_sent for ref in self.km_generator.get_referenced_assertions(a))
+                assertion for assertion, self.is_ready in zip(remaining_assertions, readiness_results)
+                if is_ready
             ]
             if not ready_assertions:
                 self.logger.info("No more assertions can be processed. Remaining: %d", len(remaining_assertions))
@@ -142,8 +152,6 @@ class OWLGraphProcessor:
 
             process_func = partial(
                 process_assertion,
-                self.km_generator,
-                successfully_sent=self.successfully_sent,
                 dry_run=self.args.dry_run
             )
             results = self.pool.map(process_func, ready_assertions)
@@ -175,7 +183,7 @@ def parse_arguments():
 
 
 def main():
-    global logger
+    global km_generator, logger
     args = parse_arguments()
     logger = setup_logging(args.debug)
     num_processes = args.num_processes if args.num_processes else cpu_count()
@@ -191,13 +199,14 @@ def main():
     km_generator = KMSyntaxGenerator(graph, object_map, logger)
     assertions = preprocess(graph)
     start_time = time.time()
-    translated_assertions = translate_assertions(assertions, km_generator)
+    translated_assertions = translate_assertions(assertions)
     elapsed_time = time.time() - start_time
     if args.translate_only:
         logger.info(f"Translated {str(len(translated_assertions))} in {str(elapsed_time)} seconds.")
         sys.exit(0)
 
     processor = OWLGraphProcessor(logger, translated_assertions, km_generator, pool, args)
+    processor.set_readiness_check(is_ready)
     processor.run()
 
     total_expressions = len(processor.successfully_sent)
