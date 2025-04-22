@@ -122,8 +122,6 @@ def is_ready(assertion, generator):
 
 
 class OWLGraphProcessor:
-    is_ready = None
-
     def __init__(self, parent_logger, assertions, generator, pool, args):
         self.assertions = assertions
         self.km_generator = generator
@@ -131,9 +129,6 @@ class OWLGraphProcessor:
         self.args = args
         self.successfully_sent = successfully_sent
         self.logger = parent_logger.getChild('OWL-Graph-Processor')
-
-    def set_readiness_check(self, func):
-        self.is_ready = func
 
     def run(self):
         failed_assertions = manager.dict()
