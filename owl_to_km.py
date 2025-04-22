@@ -4,7 +4,7 @@ import os
 import sys
 import time
 import rdflib
-from core import setup_logging, FIXED_OWL_FILE
+from core import setup_logging, FIXED_OWL_FILE, send_to_km
 from km_syntax import KMSyntaxGenerator
 from ontology_loader import load_ontology
 from multiprocessing import Pool, cpu_count, Manager, current_process
@@ -77,7 +77,7 @@ def process_assertion(assertion, dry_run):
                 f"Assertion {assertion} has unsatisfied dependencies: {[ref for ref in refs if ref not in successfully_sent]}")
             return False
 
-        result = km_generator.send_to_km(assertion, dry_run=dry_run)
+        result = send_to_km(assertion, dry_run=dry_run)
         if result.get("success", False):
             successfully_sent[assertion] = assertion
             worker_logger.info(f"Successfully sent assertion: {assertion}")
