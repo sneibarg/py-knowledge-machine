@@ -1,12 +1,14 @@
 import argparse
+import logging
 import os
+import sys
 import time
-from multiprocessing import Pool, cpu_count, Manager, current_process
-from functools import partial
 import rdflib
 from core import setup_logging, send_to_km, FIXED_OWL_FILE
 from km_syntax import KMSyntaxGenerator
 from ontology_loader import load_ontology
+from multiprocessing import Pool, cpu_count, Manager, current_process
+from functools import partial
 
 logger = None
 worker_logger = None
@@ -28,6 +30,7 @@ def init_worker(debug):
     """Initialize worker process with a logger."""
     global logger, worker_logger
     worker_logger = logger.getChild(f'Worker.{current_process().name}')
+    worker_logger.setLevel(logging.DEBUG if debug else logging.INFO)
     worker_logger.info("Initialized worker.")
 
 
@@ -56,13 +59,17 @@ def translate_assertion(assertion, km_generator):
 def process_assertion(km_generator, assertion, successfully_sent, dry_run):
     """Process a single assertion with dependency handling."""
     try:
-        worker_logger.info(f"Getting referenced assertions for assertion: {assertion}")
         refs = km_generator.get_referenced_assertions(assertion)
         worker_logger.info(f"Found {str(len(refs))} referenced assertions for assertion: {assertion}.")
+        skip_send = False
         for ref in refs:
             if ref not in successfully_sent:
                 worker_logger.info("Processing dependency: %s", ref)
-                process_assertion(km_generator, ref, successfully_sent, dry_run)
+                skip_send = process_assertion(km_generator, ref, successfully_sent, dry_run)
+
+        if skip_send:
+            worker_logger.info(f"Skipping sending assertion {assertion} due to missing dependencies!")
+            return False
 
         result = send_to_km(assertion, dry_run=dry_run)
         if result.get("success", False):
@@ -94,15 +101,15 @@ def extract_labels_and_ids(graph, logger):
 
 
 class OWLGraphProcessor:
-    def __init__(self, km_generator, graph, object_map, assertions, args, num_workers, logger):
+    def __init__(self, num_processes, km_generator, graph, object_map, assertions, args, graph_logger):
         self.graph = graph
         self.object_map = object_map
         self.args = args
         self.assertions = assertions
         self.manager = Manager()
         self.successfully_sent = self.manager.dict()
-        self.pool = Pool(processes=num_workers, initializer=init_worker, initargs=(args.debug,))
-        self.logger = logger.getChild('OWLGraphProcessor')
+        self.pool = Pool(processes=num_processes, initializer=init_worker, initargs=(args.debug,))
+        self.logger = graph_logger.getChild('OWLGraphProcessor')
         self.km_generator = km_generator
         self.logger.info("Initialized with %d assertions.", len(assertions))
 
@@ -128,6 +135,7 @@ def parse_arguments():
     parser.add_argument("--debug", action="store_true", help="Enable debug output.")
     parser.add_argument("--dry-run", action="store_true", help="Skip sending requests to KM server.")
     parser.add_argument("--num-processes", type=int, help="Number of processes to use.")
+    parser.add_argument("--translate-only", action="store_true", help="Translate and log only.")
     return parser.parse_args()
 
 
@@ -139,15 +147,21 @@ def main():
 
     if not os.path.exists(FIXED_OWL_FILE):
         logger.error("Fixed OWL file not found at %s.", FIXED_OWL_FILE)
-        return
+        sys.exit(1)
 
     logger.info("Starting KM translation process.")
     graph = load_ontology(logger)
     object_map = extract_labels_and_ids(graph, logger)
     km_generator = KMSyntaxGenerator(graph, object_map, logger)
     assertions = preprocess(graph)
+    start_time = time.time()
     translated_assertions = translate_assertions(assertions, km_generator)
-    processor = OWLGraphProcessor(km_generator, graph, object_map, translated_assertions, args, num_processes, logger)
+    elapsed_time = time.time() - start_time
+    if args.translate_only:
+        logger.info(f"Translated {str(len(translated_assertions))} in {str(elapsed_time)} seconds.")
+        sys.exit(0)
+
+    processor = OWLGraphProcessor(num_processes, km_generator, graph, object_map, translated_assertions, args, logger)
     processor.run()
 
     total_expressions = len(processor.successfully_sent)
