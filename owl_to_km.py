@@ -59,34 +59,45 @@ def translate_assertion(assertion):
     return expr
 
 
-def process_assertion(assertion, dry_run):
+def process_assertion(assertion, dry_run, failed_assertions=None):
     """
-    Process a single assertion if all its dependencies are satisfied.
+    Process an assertion by recursively handling its dependencies.
 
     Args:
-        assertion: The assertion to process.
-        dry_run: Boolean indicating if this is a test run.
+        assertion: The assertion to process
+        dry_run: Boolean indicating if this is a dry run
+        failed_assertions: Optional dict to store assertions that failed for retry
 
     Returns:
-        bool: True if successfully processed, False otherwise.
+        bool: True if assertion and all dependencies processed successfully, False otherwise
     """
-    try:
-        refs = km_generator.get_referenced_assertions(assertion)
-        if any(ref not in successfully_sent for ref in refs):
-            worker_logger.info(
-                f"Assertion {assertion} has unsatisfied dependencies: {[ref for ref in refs if ref not in successfully_sent]}")
-            return False
+    if failed_assertions is None:
+        failed_assertions = {}
 
-        result = send_to_km(assertion, dry_run=dry_run)
+    if assertion in successfully_sent:
+        return True
+
+    all_deps_successful = True
+    for ref in km_generator.get_referenced_assertions(assertion):
+        if ref not in successfully_sent and not process_assertion(ref, dry_run, failed_assertions):
+            all_deps_successful = False
+            if ref not in successfully_sent and ref not in failed_assertions:
+                failed_assertions[ref] = "dependency_failure"
+
+    if not all_deps_successful:
+        failed_assertions[assertion] = "dependency_failure"
+        return False
+
+    try:
+        result = km_generator.send_to_km(assertion, dry_run=dry_run)
         if result.get("success", False):
             successfully_sent[assertion] = assertion
-            worker_logger.info(f"Successfully sent assertion: {assertion}")
             return True
         else:
-            worker_logger.error(f"Failed to send assertion {assertion}: {result}")
+            failed_assertions[assertion] = "processing_failure"
             return False
     except Exception as e:
-        worker_logger.error(f"Error processing assertion {assertion}: {str(e)}")
+        failed_assertions[assertion] = f"exception: {str(e)}"
         return False
 
 
@@ -125,48 +136,31 @@ class OWLGraphProcessor:
         self.is_ready = func
 
     def run(self):
-        """
-        Process all assertions with retries until no further progress is possible.
-
-        Returns:
-            int: Number of successfully processed assertions.
-        """
-        self.logger.info("Starting processing in multi-threaded mode.")
-        start_time = time.time()
+        failed_assertions = manager.dict()
         remaining_assertions = set(self.assertions)
-        while remaining_assertions:
-            readiness_start = time.time()
-            self.logger.info("Determining assertion readiness.")
-            readiness_results = self.pool.map(partial(self.is_ready, self.km_generator), remaining_assertions)
-            self.logger.info(f"Determined readiness in {int(time.time() - readiness_start)} seconds.")
-            ready_assertions = [
-                assertion for assertion, ready in zip(remaining_assertions, readiness_results)
-                if ready
-            ]
-            if not ready_assertions:
-                self.logger.info("No more assertions can be processed. Remaining: %d", len(remaining_assertions))
-                if remaining_assertions:
-                    self.logger.warning(
-                        "Some assertions could not be processed due to unsatisfied dependencies or errors: %s",
-                        remaining_assertions)
-                break
+        progress_made = True
 
-            results = self.pool.map(partial(process_assertion, ry_run=self.args.dry_run), ready_assertions)
+        while remaining_assertions and progress_made:
+            process_func = partial(process_assertion, dry_run=self.args.dry_run, failed_assertions=failed_assertions)
+            results = self.pool.map(process_func, remaining_assertions)
+
             progress_made = False
-            for assertion, success in zip(ready_assertions, results):
-                if success:
-                    remaining_assertions.remove(assertion)
+            new_remaining = set()
+            for assertion, success in zip(remaining_assertions, results):
+                if not success:
+                    new_remaining.add(assertion)
+                    if assertion not in failed_assertions:
+                        failed_assertions[assertion] = "unknown_failure"
+                elif assertion in self.successfully_sent:
                     progress_made = True
-                else:
-                    self.logger.debug(f"Assertion {assertion} not processed in this round.")
 
-            if not progress_made:
-                self.logger.warning("No progress made in this iteration. Stopping.")
-                break
+            remaining_assertions = new_remaining
 
-        successes = len(self.successfully_sent)
-        self.logger.info("Processing completed in %.2fs. Sent %d assertions.", time.time() - start_time, successes)
-        return successes
+        if remaining_assertions:
+            print(f"Unprocessed assertions: {len(remaining_assertions)}")
+            print(f"Failure reasons: {dict(failed_assertions)}")
+
+        return len(self.successfully_sent)
 
 
 def parse_arguments():
