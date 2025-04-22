@@ -186,7 +186,6 @@ def main():
         sys.exit(0)
 
     processor = OWLGraphProcessor(logger, translated_assertions, km_generator, pool, args)
-    processor.set_readiness_check(is_ready)
     processor.run()
 
     total_expressions = len(processor.successfully_sent)
