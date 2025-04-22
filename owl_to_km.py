@@ -15,6 +15,7 @@ worker_logger = None
 km_generator = None
 manager = Manager()
 successfully_sent = manager.dict()
+failed_assertions = manager.dict()
 
 
 def preprocess(graph):
@@ -59,27 +60,23 @@ def translate_assertion(assertion):
     return expr
 
 
-def process_assertion(assertion, dry_run, failed_assertions=None):
+def process_assertion(assertion, dry_run):
     """
     Process an assertion by recursively handling its dependencies.
 
     Args:
         assertion: The assertion to process
         dry_run: Boolean indicating if this is a dry run
-        failed_assertions: Optional dict to store assertions that failed for retry
 
     Returns:
         bool: True if assertion and all dependencies processed successfully, False otherwise
     """
-    if failed_assertions is None:
-        failed_assertions = {}
-
     if assertion in successfully_sent:
         return True
 
     all_deps_successful = True
     for ref in km_generator.get_referenced_assertions(assertion):
-        if ref not in successfully_sent and not process_assertion(ref, dry_run, failed_assertions):
+        if ref not in successfully_sent and not process_assertion(ref, dry_run):
             all_deps_successful = False
             if ref not in successfully_sent and ref not in failed_assertions:
                 failed_assertions[ref] = "dependency_failure"
@@ -89,7 +86,7 @@ def process_assertion(assertion, dry_run, failed_assertions=None):
         return False
 
     try:
-        result = km_generator.send_to_km(assertion, dry_run=dry_run)
+        result = send_to_km(assertion, dry_run=dry_run)
         if result.get("success", False):
             successfully_sent[assertion] = assertion
             return True
