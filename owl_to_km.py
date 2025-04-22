@@ -137,7 +137,9 @@ class OWLGraphProcessor:
         start_time = time.time()
         remaining_assertions = set(self.assertions)
         while remaining_assertions:
+            start_time = time.time()
             readiness_results = self.pool.map(partial(self.is_ready, self.km_generator), remaining_assertions)
+            self.logger.info(f"Determined readiness in {int(time.time() - start_time)} seconds.")
             ready_assertions = [
                 assertion for assertion, ready in zip(remaining_assertions, readiness_results)
                 if ready
