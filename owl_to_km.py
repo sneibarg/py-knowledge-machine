@@ -12,6 +12,8 @@ from functools import partial
 
 logger = None
 worker_logger = None
+manager = Manager()
+successfully_sent = manager.dict()
 
 
 def preprocess(graph):
@@ -56,7 +58,7 @@ def translate_assertion(assertion, km_generator):
     return expr
 
 
-def process_assertion(km_generator, assertion, successfully_sent, dry_run):
+def process_assertion(km_generator, assertion, dry_run):
     """
     Process a single assertion if all its dependencies are satisfied.
 
@@ -70,27 +72,23 @@ def process_assertion(km_generator, assertion, successfully_sent, dry_run):
         bool: True if successfully processed, False otherwise.
     """
     try:
-        # Get all dependencies of the assertion
         refs = km_generator.get_referenced_assertions(assertion)
-
-        # Check if all dependencies are satisfied
         if any(ref not in successfully_sent for ref in refs):
             worker_logger.info(
                 f"Assertion {assertion} has unsatisfied dependencies: {[ref for ref in refs if ref not in successfully_sent]}")
-            return False  # Skip for now; will retry later
+            return False
 
-        # All dependencies are satisfied, attempt to send the assertion
-        result = km_generator.send_to_km(assertion, dry_run=dry_run)  # Adjust method name as per actual implementation
+        result = km_generator.send_to_km(assertion, dry_run=dry_run)
         if result.get("success", False):
             successfully_sent[assertion] = assertion
             worker_logger.info(f"Successfully sent assertion: {assertion}")
             return True
         else:
             worker_logger.error(f"Failed to send assertion {assertion}: {result}")
-            return False  # Permanent failure
+            return False
     except Exception as e:
         worker_logger.error(f"Error processing assertion {assertion}: {str(e)}")
-        return False  # Permanent failure
+        return False
 
 
 def extract_labels_and_ids(graph, logger):
@@ -110,13 +108,13 @@ def extract_labels_and_ids(graph, logger):
 
 
 class OWLGraphProcessor:
-    def __init__(self, assertions, km_generator, pool, args, successfully_sent):
-        self.assertions = assertions  # List of all assertions to process
-        self.km_generator = km_generator  # Object to handle assertions
-        self.pool = pool  # Multiprocessing pool
-        self.args = args  # Arguments including dry_run
+    def __init__(self, parent_logger, assertions, km_generator, pool, args):
+        self.assertions = assertions
+        self.km_generator = km_generator
+        self.pool = pool
+        self.args = args
         self.successfully_sent = successfully_sent  # Shared Manager.dict
-        self.logger = logging.getLogger(__name__)
+        self.logger = parent_logger.getChild('OWL-Graph-Processor')
 
     def run(self):
         """
@@ -180,6 +178,7 @@ def main():
     global logger
     args = parse_arguments()
     num_processes = args.num_processes if args.num_processes else cpu_count()
+    pool = Pool(processes=num_processes, initializer=init_worker, initargs=(args.debug,))
     logger = setup_logging(args.debug)
 
     if not os.path.exists(FIXED_OWL_FILE):
@@ -198,7 +197,7 @@ def main():
         logger.info(f"Translated {str(len(translated_assertions))} in {str(elapsed_time)} seconds.")
         sys.exit(0)
 
-    processor = OWLGraphProcessor(num_processes, km_generator, graph, object_map, translated_assertions, args, logger)
+    processor = OWLGraphProcessor(logger, km_generator, translated_assertions, pool, args)
     processor.run()
 
     total_expressions = len(processor.successfully_sent)
