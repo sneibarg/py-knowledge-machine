@@ -40,7 +40,7 @@ def init_worker(debug):
 def translate_assertions(assertion_list):
     translated_assertions = []
     for assertion in assertion_list:
-        translated_assertions.append(translate_assertion(assertion, km_generator))
+        translated_assertions.append(translate_assertion(assertion))
     return translated_assertions
 
 
@@ -152,11 +152,7 @@ class OWLGraphProcessor:
                         remaining_assertions)
                 break
 
-            process_func = partial(
-                process_assertion,
-                dry_run=self.args.dry_run
-            )
-            results = self.pool.map(process_func, ready_assertions)
+            results = self.pool.map(partial(process_assertion, ry_run=self.args.dry_run), ready_assertions)
             progress_made = False
             for assertion, success in zip(ready_assertions, results):
                 if success:
@@ -169,9 +165,8 @@ class OWLGraphProcessor:
                 self.logger.warning("No progress made in this iteration. Stopping.")
                 break
 
-        elapsed_time = time.time() - start_time
         successes = len(self.successfully_sent)
-        self.logger.info("Processing completed in %.2fs. Sent %d assertions.", elapsed_time, successes)
+        self.logger.info("Processing completed in %.2fs. Sent %d assertions.", time.time() - start_time, successes)
         return successes
 
 
@@ -200,11 +195,10 @@ def main():
     object_map = extract_labels_and_ids(graph, logger)
     km_generator = KMSyntaxGenerator(graph, object_map, logger)
     assertions = preprocess(graph)
-    start_time = time.time()
+    translate_start = time.time()
     translated_assertions = translate_assertions(assertions)
-    elapsed_time = time.time() - start_time
     if args.translate_only:
-        logger.info(f"Translated {str(len(translated_assertions))} in {str(elapsed_time)} seconds.")
+        logger.info(f"Translated {str(len(translated_assertions))} in {str(int(time.time() - translate_start))} seconds.")
         sys.exit(0)
 
     processor = OWLGraphProcessor(logger, translated_assertions, km_generator, pool, args)
