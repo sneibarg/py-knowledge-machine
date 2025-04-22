@@ -4,7 +4,7 @@ import os
 import sys
 import time
 import rdflib
-from core import setup_logging, send_to_km, FIXED_OWL_FILE
+from core import setup_logging, FIXED_OWL_FILE
 from km_syntax import KMSyntaxGenerator
 from ontology_loader import load_ontology
 from multiprocessing import Pool, cpu_count, Manager, current_process
@@ -177,9 +177,9 @@ def parse_arguments():
 def main():
     global logger
     args = parse_arguments()
+    logger = setup_logging(args.debug)
     num_processes = args.num_processes if args.num_processes else cpu_count()
     pool = Pool(processes=num_processes, initializer=init_worker, initargs=(args.debug,))
-    logger = setup_logging(args.debug)
 
     if not os.path.exists(FIXED_OWL_FILE):
         logger.error("Fixed OWL file not found at %s.", FIXED_OWL_FILE)
