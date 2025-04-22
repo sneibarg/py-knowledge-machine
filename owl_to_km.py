@@ -128,7 +128,6 @@ class OWLGraphProcessor:
         self.logger = parent_logger.getChild('OWL-Graph-Processor')
 
     def run(self):
-        failed_assertions = manager.dict()
         remaining_assertions = set(self.assertions)
         progress_made = True
 
