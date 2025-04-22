@@ -57,31 +57,40 @@ def translate_assertion(assertion, km_generator):
 
 
 def process_assertion(km_generator, assertion, successfully_sent, dry_run):
-    """Process a single assertion with dependency handling."""
+    """
+    Process a single assertion if all its dependencies are satisfied.
+
+    Args:
+        km_generator: Object to get referenced assertions and send to KM.
+        assertion: The assertion to process.
+        successfully_sent: Shared dictionary tracking successfully processed assertions.
+        dry_run: Boolean indicating if this is a test run.
+
+    Returns:
+        bool: True if successfully processed, False otherwise.
+    """
     try:
+        # Get all dependencies of the assertion
         refs = km_generator.get_referenced_assertions(assertion)
-        worker_logger.info(f"Found {str(len(refs))} referenced assertions for assertion: {assertion}.")
-        skip_send = False
-        for ref in refs:
-            if ref not in successfully_sent:
-                worker_logger.info("Processing dependency: %s", ref)
-                skip_send = process_assertion(km_generator, ref, successfully_sent, dry_run)
 
-        if skip_send:
-            worker_logger.info(f"Skipping sending assertion {assertion} due to missing dependencies!")
-            return False
+        # Check if all dependencies are satisfied
+        if any(ref not in successfully_sent for ref in refs):
+            worker_logger.info(
+                f"Assertion {assertion} has unsatisfied dependencies: {[ref for ref in refs if ref not in successfully_sent]}")
+            return False  # Skip for now; will retry later
 
-        result = send_to_km(assertion, dry_run=dry_run)
+        # All dependencies are satisfied, attempt to send the assertion
+        result = km_generator.send_to_km(assertion, dry_run=dry_run)  # Adjust method name as per actual implementation
         if result.get("success", False):
             successfully_sent[assertion] = assertion
-            worker_logger.info("Successfully sent assertion: %s...", assertion)
+            worker_logger.info(f"Successfully sent assertion: {assertion}")
             return True
         else:
-            worker_logger.error("Failed to send assertion: %s", result)
-            return False
+            worker_logger.error(f"Failed to send assertion {assertion}: {result}")
+            return False  # Permanent failure
     except Exception as e:
-        worker_logger.error("Error processing assertion: %s", str(e))
-        return False
+        worker_logger.error(f"Error processing assertion {assertion}: {str(e)}")
+        return False  # Permanent failure
 
 
 def extract_labels_and_ids(graph, logger):
@@ -101,32 +110,60 @@ def extract_labels_and_ids(graph, logger):
 
 
 class OWLGraphProcessor:
-    def __init__(self, num_processes, km_generator, graph, object_map, assertions, args, graph_logger):
-        self.graph = graph
-        self.object_map = object_map
-        self.args = args
-        self.assertions = assertions
-        self.manager = Manager()
-        self.successfully_sent = self.manager.dict()
-        self.pool = Pool(processes=num_processes, initializer=init_worker, initargs=(args.debug,))
-        self.logger = graph_logger.getChild('OWLGraphProcessor')
-        self.km_generator = km_generator
-        self.logger.info("Initialized with %d assertions.", len(assertions))
+    def __init__(self, assertions, km_generator, pool, args, successfully_sent):
+        self.assertions = assertions  # List of all assertions to process
+        self.km_generator = km_generator  # Object to handle assertions
+        self.pool = pool  # Multiprocessing pool
+        self.args = args  # Arguments including dry_run
+        self.successfully_sent = successfully_sent  # Shared Manager.dict
+        self.logger = logging.getLogger(__name__)
 
     def run(self):
-        """Run the processing with multi-processing."""
+        """
+        Process all assertions with retries until no further progress is possible.
+
+        Returns:
+            int: Number of successfully processed assertions.
+        """
         self.logger.info("Starting processing in multi-threaded mode.")
         start_time = time.time()
-        process_func = partial(process_assertion, self.km_generator, successfully_sent=self.successfully_sent,
-                               dry_run=self.args.dry_run)
-        results = self.pool.map(process_func, self.assertions)
-        self.pool.close()
-        self.pool.join()
+        remaining_assertions = set(self.assertions)
+
+        while remaining_assertions:
+            ready_assertions = [
+                a for a in remaining_assertions
+                if all(ref in self.successfully_sent for ref in self.km_generator.get_referenced_assertions(a))
+            ]
+            if not ready_assertions:
+                self.logger.info("No more assertions can be processed. Remaining: %d", len(remaining_assertions))
+                if remaining_assertions:
+                    self.logger.warning(
+                        "Some assertions could not be processed due to unsatisfied dependencies or errors: %s",
+                        remaining_assertions)
+                break
+
+            process_func = partial(
+                process_assertion,
+                self.km_generator,
+                successfully_sent=self.successfully_sent,
+                dry_run=self.args.dry_run
+            )
+            results = self.pool.map(process_func, ready_assertions)
+            progress_made = False
+            for assertion, success in zip(ready_assertions, results):
+                if success:
+                    remaining_assertions.remove(assertion)
+                    progress_made = True
+                else:
+                    self.logger.debug(f"Assertion {assertion} not processed in this round.")
+
+            if not progress_made:
+                self.logger.warning("No progress made in this iteration. Stopping.")
+                break
 
         elapsed_time = time.time() - start_time
-        successes = sum(results)
-        self.logger.info("Processing completed in %.2fs. Sent %d/%d assertions.", elapsed_time, successes,
-                         len(self.assertions))
+        successes = len(self.successfully_sent)
+        self.logger.info("Processing completed in %.2fs. Sent %d assertions.", elapsed_time, successes)
         return successes
 
 
