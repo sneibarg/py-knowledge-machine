@@ -95,7 +95,7 @@ def process_assertion(assertion, dry_run):
 def extract_labels_and_ids(graph, parent_logger):
     """Extract labels and external IDs from the graph."""
     child_logger = parent_logger.getChild('LabelsExtractor')
-    child_logger.info("Extracting labels and IDs from graph...")
+    child_logger.info("Extracting labels and IDs from graph.")
     result = {}
     for subject in graph.subjects():
         label = next((str(obj) for obj in graph.objects(subject, rdflib.RDFS.label) if isinstance(obj, rdflib.Literal)),
