@@ -132,7 +132,7 @@ class KMSyntaxGenerator:
 
     def get_referenced_assertions(self, assertion):
         clean_assertion = re.sub(r'"[^"]*"', '', assertion)
-        self.logger.info("Cleaned assertion: %s...", clean_assertion[:100])
+        self.logger.debug("Cleaned assertion: %s...", clean_assertion[:100])
         symbols = re.findall(r'[-\w]+', clean_assertion)
         referenced_frames = set(sym for sym in symbols if sym not in BUILT_IN_FRAMES)
         name_to_uri = {name: u for u, name in self.resource_names.items()}
@@ -150,7 +150,7 @@ class KMSyntaxGenerator:
                            if s == ref_uri and (o, rdflib.RDF.type, rdflib.OWL.Class) in self.graph]
                 for class_uri in classes:
                     ref_assertions.append(("individual", (ref_uri, class_uri)))
-        self.logger.info("Found %d referenced assertions.", len(ref_assertions))
+        self.logger.debug("Found %d referenced assertions.", len(ref_assertions))
         return ref_assertions
 
     def get_uri_type(self, uri):
