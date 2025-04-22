@@ -183,17 +183,16 @@ def main():
     global km_generator, logger
     args = parse_arguments()
     logger = setup_logging(args.debug)
-    num_processes = args.num_processes if args.num_processes else cpu_count()
-    pool = Pool(processes=num_processes, initializer=init_worker, initargs=(args.debug,))
-
     if not os.path.exists(FIXED_OWL_FILE):
         logger.error("Fixed OWL file not found at %s.", FIXED_OWL_FILE)
         sys.exit(1)
 
+    num_processes = args.num_processes if args.num_processes else cpu_count()
     logger.info("Starting KM translation process.")
     graph = load_ontology(logger)
     object_map = extract_labels_and_ids(graph, logger)
     km_generator = KMSyntaxGenerator(graph, object_map, logger)
+    pool = Pool(processes=num_processes, initializer=init_worker, initargs=(args.debug,))
     assertions = preprocess(graph)
     translate_start = time.time()
     translated_assertions = translate_assertions(assertions)
