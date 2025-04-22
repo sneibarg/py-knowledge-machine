@@ -132,11 +132,10 @@ class OWLGraphProcessor:
         progress_made = True
 
         while remaining_assertions and progress_made:
-            process_func = partial(process_assertion, dry_run=self.args.dry_run, failed_assertions=failed_assertions)
-            results = self.pool.map(process_func, remaining_assertions)
-
-            progress_made = False
             new_remaining = set()
+            progress_made = False
+            process_func = partial(process_assertion, dry_run=self.args.dry_run)
+            results = self.pool.map(process_func, remaining_assertions)
             for assertion, success in zip(remaining_assertions, results):
                 if not success:
                     new_remaining.add(assertion)
@@ -144,7 +143,6 @@ class OWLGraphProcessor:
                         failed_assertions[assertion] = "unknown_failure"
                 elif assertion in self.successfully_sent:
                     progress_made = True
-
             remaining_assertions = new_remaining
 
         if remaining_assertions:
