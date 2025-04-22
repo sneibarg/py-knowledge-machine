@@ -92,9 +92,9 @@ def process_assertion(assertion, dry_run):
         return False
 
 
-def extract_labels_and_ids(graph, logger):
+def extract_labels_and_ids(graph, parent_logger):
     """Extract labels and external IDs from the graph."""
-    child_logger = logger.getChild('LabelsExtractor')
+    child_logger = parent_logger.getChild('LabelsExtractor')
     child_logger.info("Extracting labels and IDs from graph...")
     result = {}
     for subject in graph.subjects():
@@ -139,8 +139,8 @@ class OWLGraphProcessor:
         while remaining_assertions:
             readiness_results = self.pool.map(partial(self.is_ready, self.km_generator), remaining_assertions)
             ready_assertions = [
-                assertion for assertion, self.is_ready in zip(remaining_assertions, readiness_results)
-                if is_ready
+                assertion for assertion, ready in zip(remaining_assertions, readiness_results)
+                if ready
             ]
             if not ready_assertions:
                 self.logger.info("No more assertions can be processed. Remaining: %d", len(remaining_assertions))
