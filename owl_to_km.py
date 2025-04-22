@@ -64,9 +64,7 @@ def process_assertion(assertion, dry_run):
     Process a single assertion if all its dependencies are satisfied.
 
     Args:
-        km_generator: Object to get referenced assertions and send to KM.
         assertion: The assertion to process.
-        successfully_sent: Shared dictionary tracking successfully processed assertions.
         dry_run: Boolean indicating if this is a test run.
 
     Returns:
