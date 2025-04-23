@@ -131,6 +131,7 @@ class KMSyntaxGenerator:
         return expr
 
     def get_referenced_assertions(self, assertion):
+        self.logger.info(f"Getting reference assertions for {assertion}")
         clean_assertion = re.sub(r'"[^"]*"', '', assertion)
         self.logger.debug("Cleaned assertion: %s...", clean_assertion[:100])
         symbols = re.findall(r'[-\w]+', clean_assertion)
