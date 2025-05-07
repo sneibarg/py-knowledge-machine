@@ -1,23 +1,20 @@
-import zstandard as zstd
+import argparse
 import json
 import logging
-import time
-import argparse
 import os
 import re
-import requests
 import sys
+import time
+import requests
+import zstandard as zstd
+from logging.handlers import QueueHandler
+from multiprocessing import Pool, Queue, Process
+from typing import List, Tuple, Union, Optional
 from huggingface_hub import HfApi, hf_hub_download
+from queue import Empty
 
-# Configure logging to write to a file
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('ontology_editor.log'),  # Log to file
-        logging.StreamHandler()  # Optional: keep console output
-    ]
-)
+SortKey = Tuple[Union[int, float], Union[int, float], Union[int, float]]
+log_queue = Queue()
 
 nlp_api_url = "http://malboji:8069/nlp/relations"
 mistral_api_url = "http://localhost:11434/api/generate"
@@ -30,20 +27,57 @@ ontologist_prompt = ("I am your automated ontology editor, and I am reviewing da
                      "The following text you have given me is: ")
 
 
-def stanford_relations(data):
+def setup_logging(queue: Queue) -> logging.Logger:
+    """Configure logging for a process to use QueueHandler."""
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.handlers = []
+    queue_handler = QueueHandler(queue)
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    queue_handler.setFormatter(formatter)
+    logger.addHandler(queue_handler)
+    return logger
+
+
+def log_listener(queue: Queue, log_file: str) -> None:
+    """Listener process to handle log messages from the queue."""
+    logger = logging.getLogger('listener')
+    logger.setLevel(logging.INFO)
+    file_handler = logging.FileHandler(log_file)
+    stream_handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
+
+    while True:
+        try:
+            record = queue.get()
+            if record is None:
+                break
+            logger.handle(record)
+        except Empty:
+            continue
+        except Exception as e:
+            print(f"Error in log listener: {e}", file=sys.stderr)
+
+
+def stanford_relations(data: str) -> dict:
     headers = {'Content-Type': 'application/json'}
     try:
-        start_time = time.time()  # Start timer
+        start_time = time.time()
         response = requests.post(nlp_api_url, data=data, headers=headers)
-        end_time = time.time()  # End timer
+        end_time = time.time()
         duration = end_time - start_time
         logging.info(f"REST call to {nlp_api_url} took {duration:.3f} seconds")
         return response.json()
     except Exception as e:
         logging.error(f"An error occurred getting relations: {e}")
+        return {}
 
 
-def mistral_one_shot(text, base_prompt):
+def mistral_one_shot(text: str, base_prompt: str) -> Optional[str]:
     full_prompt = f"<s>[INST] {base_prompt} {text} [/INST]"
     payload = {
         "model": "mistral:7b-instruct-q4_0",
@@ -53,9 +87,9 @@ def mistral_one_shot(text, base_prompt):
 
     try:
         try:
-            start_time = time.time()  # Start timer
+            start_time = time.time()
             response = requests.post(mistral_api_url, json=payload)
-            end_time = time.time()  # End timer
+            end_time = time.time()
             duration = end_time - start_time
             logging.info(f"REST call to {mistral_api_url} took {duration:.3f} seconds")
             response.raise_for_status()
@@ -68,9 +102,11 @@ def mistral_one_shot(text, base_prompt):
             logging.error("Unexpected response structure from Ollama server")
     except Exception as e:
         logging.error(f"An error occurred: {e}")
+    return None
 
 
-def download_and_get_local_path(repo_id, file_path, cache_dir=None, retry_count=3):
+def download_and_get_local_path(repo_id: str, file_path: str, cache_dir: Optional[str] = None,
+                                retry_count: int = 3) -> str:
     """Download a file from the Hugging Face Hub with retries and return its local path."""
     for attempt in range(retry_count):
         try:
@@ -95,21 +131,23 @@ def download_and_get_local_path(repo_id, file_path, cache_dir=None, retry_count=
             raise
 
 
-def dump_data(local_path):
+def dump_data(local_path: str) -> List[str]:
     lines = []
     try:
         with zstd.open(local_path, 'rt') as f:
-            lines.append(next(f))
+            for line in f:
+                lines.append(line)
         return lines
     except Exception as e:
         logging.error(f"Error processing file: {e}")
+        return []
 
 
-def classify_url(url, prompt):
+def classify_url(url: str, prompt: str) -> Optional[str]:
     return generate_one_shot(url, prompt)
 
 
-def generate_one_shot(text, prompt):
+def generate_one_shot(text: str, prompt: str) -> Optional[str]:
     logging.info(f"Text: {text}")
     mistral_response = mistral_one_shot(text, prompt)
     logging.info(f"Mistral Response: {mistral_response}")
@@ -121,13 +159,32 @@ def generate_one_shot(text, prompt):
     return mistral_response
 
 
-def process_file(local_path, print_contents=False, summarize=False, rank=False):
-    """Process a local .jsonl.zst file and log information about it."""
-    dataset = dump_data(local_path)
-    for row in dataset:
-        record = json.loads(row)
-        text = record['text']
-        url = record['url']
+def process_shot(text: str, shot: int, key_terms: set) -> Tuple[Optional[str], int]:
+    """Process a single shot for summarization and return the summary and score."""
+    setup_logging(log_queue)  # Configure logging for this process
+    logging.info(f"Processing shot {shot} for text")
+    summary = generate_one_shot(text, ontologist_prompt)
+    relations = stanford_relations(summary)
+    summary_nouns = set()
+    if "parseTree" in str(relations):
+        for sentence in relations['sentences']:
+            tokens = sentence.get('tokens', [])
+            for token in tokens:
+                word = token.get('word')
+                pos = token.get('pos', '')
+                if pos.startswith('N') and word is not None:
+                    summary_nouns.add(word.lower())
+    score = len(summary_nouns.intersection(key_terms))
+    return summary, score
+
+
+def process_record(record: str, print_contents: bool, summarize: bool, rank: bool,
+                   record_index: Optional[int] = None, distribute_shots: bool = False) -> None:
+    """Process a single JSON record and log information about it."""
+    try:
+        record_data = json.loads(record)
+        text = record_data['text']
+        url = record_data['url']
         url_response = classify_url(url, url_prompt)
         logging.info(f"URL Description: {url_response}")
 
@@ -141,42 +198,80 @@ def process_file(local_path, print_contents=False, summarize=False, rank=False):
                     for token in tokens:
                         word = token.get('word')
                         pos = token.get('pos', '')
-                        if pos.startswith('N') and word is not None:  # Nouns: NN, NNS, NNP, NNPS
+                        if pos.startswith('N') and word is not None:
                             key_terms.add(word.lower())
             logging.info(f"Key Terms from URL: {key_terms}")
 
         if print_contents and summarize:
-            summarize_text(text, rank, key_terms if rank else None)
-            sys.exit(0)
+            summarize_text(text, rank, key_terms if rank else None, distribute_shots, record_index)
+    except json.JSONDecodeError as e:
+        if record_index is not None:
+            logging.error(f"Error parsing record at index {record_index}: {e}")
+        else:
+            logging.error(f"Error parsing record: {e}")
 
 
-def summarize_text(text, rank, key_terms=None):
+def process_file(args: Tuple[str, bool, bool, bool, Optional[int], bool]) -> None:
+    """Process a local .jsonl.zst file and log information about it."""
+    local_path, print_contents, summarize, rank, record_index, distribute_shots = args
+    dataset = dump_data(local_path)
+    if not dataset:
+        logging.error(f"No records found in file: {local_path}")
+        return
+
+    if record_index is not None:
+        if not isinstance(record_index, int) or record_index < 0:
+            logging.error(f"Invalid record index: {record_index}. Must be a non-negative integer.")
+            return
+        if record_index >= len(dataset):
+            logging.error(f"Record index {record_index} out of range. File has {len(dataset)} records.")
+            return
+        logging.info(f"Processing record at index {record_index} in file: {local_path}")
+        process_record(dataset[record_index], print_contents, summarize, rank, record_index, distribute_shots)
+    else:
+        if distribute_shots:
+            logging.warning(f"--distribute-shots is ignored when --record-index is not specified")
+        logging.info(f"Processing all records in file: {local_path}")
+        for i, row in enumerate(dataset):
+            process_record(row, print_contents, summarize, rank, i, distribute_shots)
+
+
+def summarize_text(text: str, rank: bool, key_terms: Optional[set] = None, distribute_shots: bool = False,
+                   record_index: Optional[int] = None) -> None:
     if rank and key_terms is not None:
         summaries = []
-        for shot in range(max_shots):
-            summary = generate_one_shot(text, ontologist_prompt)
-            relations = stanford_relations(summary)
-            summary_nouns = set()
-            if "parseTree" in str(relations):
-                for sentence in relations['sentences']:
-                    tokens = sentence.get('tokens', [])
-                    for token in tokens:
-                        word = token.get('word')
-                        pos = token.get('pos', '')
-                        if pos.startswith('N') and word is not None:
-                            summary_nouns.add(word.lower())
-            score = len(summary_nouns.intersection(key_terms))
-            summaries.append((summary, score))
+        if distribute_shots:
+            logging.info(f"Distributing {max_shots} shots for record {record_index if record_index is not None else 'unknown'} across processes")
+            with Pool() as pool:
+                results = pool.starmap(process_shot, [(text, shot, key_terms) for shot in range(max_shots)])
+                summaries = [(summary, score) for summary, score in results if summary is not None]
+        else:
+            for shot in range(max_shots):
+                summary = generate_one_shot(text, ontologist_prompt)
+                relations = stanford_relations(summary)
+                summary_nouns = set()
+                if "parseTree" in str(relations):
+                    for sentence in relations['sentences']:
+                        tokens = sentence.get('tokens', [])
+                        for token in tokens:
+                            word = token.get('word')
+                            pos = token.get('pos', '')
+                            if pos.startswith('N') and word is not None:
+                                summary_nouns.add(word.lower())
+                score = len(summary_nouns.intersection(key_terms))
+                summaries.append((summary, score))
 
         summaries.sort(key=lambda x: x[1], reverse=True)
         logging.info("Ranked Summaries:")
         for i, (summary, score) in enumerate(summaries, 1):
             logging.info(f"Rank {i} (Score: {score}): {summary}")
     else:
+        if distribute_shots:
+            logging.warning(f"--distribute-shots is ignored when --rank is not set")
         generate_one_shot(text, ontologist_prompt)
 
 
-def get_sort_key(file_path):
+def get_sort_key(file_path: str) -> SortKey:
     """Extract sorting keys from the file path for sequential ordering."""
     match = re.match(r'global-shard_(\d+)_of_\d+/local-shard_(\d+)_of_\d+/shard_(\d+)_processed\.jsonl\.zst',
                      file_path)
@@ -188,8 +283,26 @@ def get_sort_key(file_path):
     return float('inf'), float('inf'), float('inf')
 
 
-def main():
-    """Parse command-line arguments and inspect the dataset files in sequential order."""
+def split_files(files: List[Tuple[str, str]], num_procs: int) -> List[List[Tuple[str, str]]]:
+    """Split files into chunks for each process."""
+    chunk_size = max(1, len(files) // num_procs)
+    return [files[i:i + chunk_size] for i in range(0, len(files), chunk_size)]
+
+
+def worker_process(file_chunk: List[Tuple[str, str]], print_contents: bool, summarize: bool, rank: bool,
+                   record_index: Optional[int], distribute_shots: bool) -> None:
+    """Process a chunk of files in a worker process."""
+    setup_logging(log_queue)
+    for relative_path, local_path in file_chunk:
+        logging.info(f"Processing file: {relative_path}")
+        try:
+            process_file((local_path, print_contents, summarize, rank, record_index, distribute_shots))
+        except Exception as e:
+            logging.error(f"Error processing file {relative_path}: {e}")
+
+
+def main() -> None:
+    """Parse command-line arguments and inspect the dataset files in parallel."""
     parser = argparse.ArgumentParser(description="Inspect Hugging Face dataset files")
     parser.add_argument('repo_id', type=str, help='Dataset repository ID (e.g., mlfoundations/dclm-baseline-1.0)')
     parser.add_argument('--local-snapshot-dir', type=str, help='Path to local snapshot directory')
@@ -199,10 +312,22 @@ def main():
     parser.add_argument('--print-contents', action='store_true', help='Print contents of each file')
     parser.add_argument('--summarize', action='store_true', help='Log Mistral one-shot summary.')
     parser.add_argument('--rank', action='store_true', help='Ten responses will be generated and ranked.')
-    parser.add_argument('--max-lines', type=int, default=99999999999, help='Maximum number of lines to log per file')
+    parser.add_argument('--num-procs', type=int, default=1, help='Number of processes to use for parallel processing')
+    parser.add_argument('--record-index', type=int, default=None, help='Index of the record to process in each file')
+    parser.add_argument('--distribute-shots', action='store_true',
+                        help='Distribute shots for a specific record across processes (requires --record-index and --rank)')
     args = parser.parse_args()
 
-    files_to_process = []
+    if args.num_procs < 1:
+        print("Error: --num-procs must be at least 1", file=sys.stderr)
+        sys.exit(1)
+
+    listener = Process(target=log_listener, args=(log_queue, 'ontology_editor.log'))
+    listener.start()
+
+    setup_logging(log_queue)
+
+    files_to_process: List[Tuple[str, str]] = []
     if args.local_snapshot_dir and os.path.isdir(args.local_snapshot_dir):
         try:
             refs_path = os.path.join(args.local_snapshot_dir, 'refs', 'main')
@@ -250,7 +375,7 @@ def main():
         else:
             files_to_process_remote = jsonl_files
 
-        files_to_process_remote.sort(key=get_sort_key)
+        files_to_process_remote.sort(key=lambda x: get_sort_key(x))
         for file_path in files_to_process_remote:
             try:
                 local_path = download_and_get_local_path(args.repo_id, file_path, args.cache_dir, args.retry_count)
@@ -261,12 +386,25 @@ def main():
     total_files = len(files_to_process)
     if total_files == 0:
         logging.error("No files to process. Check your local snapshot directory or repository settings.")
+        log_queue.put(None)
+        listener.join()
         return
 
-    for idx, (relative_path, local_path) in enumerate(files_to_process, 1):
-        process_file(local_path, print_contents=args.print_contents, summarize=args.summarize, rank=args.rank)
+    file_chunks = split_files(files_to_process, args.num_procs)
+    logging.info(f"Distributing {total_files} files across {args.num_procs} processes")
+
+    if args.num_procs == 1:
+        worker_process(files_to_process, args.print_contents, args.summarize, args.rank, args.record_index,
+                       args.distribute_shots)
+    else:
+        with Pool(processes=args.num_procs) as pool:
+            pool.starmap(worker_process,
+                         [(chunk, args.print_contents, args.summarize, args.rank, args.record_index, args.distribute_shots)
+                          for chunk in file_chunks])
 
     logging.info('Inspection completed')
+    log_queue.put(None)
+    listener.join()
 
 
 if __name__ == '__main__':
