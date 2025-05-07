@@ -9,7 +9,16 @@ import requests
 import sys
 from huggingface_hub import HfApi, hf_hub_download
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Configure logging to write to a file
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('ontology_editor.log'),  # Log to file
+        logging.StreamHandler()  # Optional: keep console output
+    ]
+)
+
 nlp_api_url = "http://malboji:8069/nlp/relations"
 mistral_api_url = "http://localhost:11434/api/generate"
 max_shots = 10
@@ -24,10 +33,14 @@ ontologist_prompt = ("I am your automated ontology editor, and I am reviewing da
 def stanford_relations(data):
     headers = {'Content-Type': 'application/json'}
     try:
+        start_time = time.time()  # Start timer
         response = requests.post(nlp_api_url, data=data, headers=headers)
+        end_time = time.time()  # End timer
+        duration = end_time - start_time
+        logging.info(f"REST call to {nlp_api_url} took {duration:.3f} seconds")
         return response.json()
     except Exception as e:
-        print(f"An error occurred getting relations: {e}")
+        logging.error(f"An error occurred getting relations: {e}")
 
 
 def mistral_one_shot(text, base_prompt):
@@ -40,17 +53,21 @@ def mistral_one_shot(text, base_prompt):
 
     try:
         try:
+            start_time = time.time()  # Start timer
             response = requests.post(mistral_api_url, json=payload)
+            end_time = time.time()  # End timer
+            duration = end_time - start_time
+            logging.info(f"REST call to {mistral_api_url} took {duration:.3f} seconds")
             response.raise_for_status()
             return response.json()['response']
         except requests.exceptions.RequestException as e:
-            print(f"Error communicating with Ollama server: {e}")
+            logging.error(f"Error communicating with Ollama server: {e}")
         except json.JSONDecodeError:
-            print("Error: Invalid response format from Ollama server")
+            logging.error("Invalid response format from Ollama server")
         except KeyError:
-            print("Error: Unexpected response structure from Ollama server")
+            logging.error("Unexpected response structure from Ollama server")
     except Exception as e:
-        print(f"An error occurred: {e}")
+        logging.error(f"An error occurred: {e}")
 
 
 def download_and_get_local_path(repo_id, file_path, cache_dir=None, retry_count=3):
@@ -85,7 +102,7 @@ def dump_data(local_path):
             lines.append(next(f))
         return lines
     except Exception as e:
-        print(f"Error processing file: {e}")
+        logging.error(f"Error processing file: {e}")
 
 
 def classify_url(url, prompt):
@@ -93,30 +110,30 @@ def classify_url(url, prompt):
 
 
 def generate_one_shot(text, prompt):
-    print("Text: " + text)
+    logging.info(f"Text: {text}")
     mistral_response = mistral_one_shot(text, prompt)
-    print("Mistral Response: " + mistral_response)
+    logging.info(f"Mistral Response: {mistral_response}")
     relations = stanford_relations(mistral_response)
     if "parseTree" in str(relations):
         for sentence in relations['sentences']:
             parse_tree = sentence['parseTree']
-            print("parseTree: " + parse_tree)
+            logging.info(f"parseTree: {parse_tree}")
     return mistral_response
 
 
 def process_file(local_path, print_contents=False, summarize=False, rank=False):
-    """Process a local .jsonl.zst file and print information about it."""
+    """Process a local .jsonl.zst file and log information about it."""
     dataset = dump_data(local_path)
     for row in dataset:
         record = json.loads(row)
         text = record['text']
         url = record['url']
         url_response = classify_url(url, url_prompt)
-        print("URL Description: " + url_response)
+        logging.info(f"URL Description: {url_response}")
 
         key_terms = set()
         if summarize and rank:
-            print("Ranking summaries...")
+            logging.info("Ranking summaries...")
             relations = stanford_relations(url_response)
             if "parseTree" in str(relations):
                 for sentence in relations['sentences']:
@@ -126,7 +143,7 @@ def process_file(local_path, print_contents=False, summarize=False, rank=False):
                         pos = token.get('pos', '')
                         if pos.startswith('N') and word is not None:  # Nouns: NN, NNS, NNP, NNPS
                             key_terms.add(word.lower())
-            print(f"Key Terms from URL: {key_terms}")
+            logging.info(f"Key Terms from URL: {key_terms}")
 
         if print_contents and summarize:
             summarize_text(text, rank, key_terms if rank else None)
@@ -146,15 +163,15 @@ def summarize_text(text, rank, key_terms=None):
                     for token in tokens:
                         word = token.get('word')
                         pos = token.get('pos', '')
-                        if pos.startswith('N'):
+                        if pos.startswith('N') and word is not None:
                             summary_nouns.add(word.lower())
             score = len(summary_nouns.intersection(key_terms))
             summaries.append((summary, score))
 
         summaries.sort(key=lambda x: x[1], reverse=True)
-        print("\nRanked Summaries:")
+        logging.info("Ranked Summaries:")
         for i, (summary, score) in enumerate(summaries, 1):
-            print(f"Rank {i} (Score: {score}): {summary}")
+            logging.info(f"Rank {i} (Score: {score}): {summary}")
     else:
         generate_one_shot(text, ontologist_prompt)
 
@@ -180,9 +197,9 @@ def main():
     parser.add_argument('--cache-dir', type=str, default=None, help='Cache directory for downloaded files')
     parser.add_argument('--retry-count', type=int, default=3, help='Number of retry attempts for downloads')
     parser.add_argument('--print-contents', action='store_true', help='Print contents of each file')
-    parser.add_argument('--summarize', action='store_true', help='Print Mistral one-shot summary.')
+    parser.add_argument('--summarize', action='store_true', help='Log Mistral one-shot summary.')
     parser.add_argument('--rank', action='store_true', help='Ten responses will be generated and ranked.')
-    parser.add_argument('--max-lines', type=int, default=99999999999, help='Maximum number of lines to print per file')
+    parser.add_argument('--max-lines', type=int, default=99999999999, help='Maximum number of lines to log per file')
     args = parser.parse_args()
 
     files_to_process = []
@@ -209,27 +226,27 @@ def main():
                 raise FileNotFoundError(f"No .jsonl.zst files found in {snapshot_dir} or its subdirectories")
 
             files_to_process.sort(key=lambda x: get_sort_key(x[0]))
-            print(f"Found {len(files_to_process)} .jsonl.zst files in the local snapshot.")
+            logging.info(f"Found {len(files_to_process)} .jsonl.zst files in the local snapshot.")
 
             if args.files:
                 specified_files = set(args.files)
                 files_to_process = [f for f in files_to_process if f[0] in specified_files]
                 if len(files_to_process) < len(specified_files):
-                    print("Warning: Some specified files were not found in the local snapshot.")
+                    logging.warning("Some specified files were not found in the local snapshot.")
         except Exception as e:
-            print(f"Error accessing local snapshot directory: {e}")
-            print("Falling back to downloading files.")
+            logging.error(f"Error accessing local snapshot directory: {e}")
+            logging.info("Falling back to downloading files.")
             files_to_process = []
 
     if not files_to_process:
-        print("No local files available. Proceeding to download from the repository.")
+        logging.info("No local files available. Proceeding to download from the repository.")
         api = HfApi()
         repo_files = api.list_repo_files(repo_id=args.repo_id, repo_type='dataset')
         jsonl_files = [f for f in repo_files if f.endswith('.jsonl.zst')]
         if args.files:
             files_to_process_remote = [f for f in args.files if f in jsonl_files]
             if len(files_to_process_remote) < len(args.files):
-                print("Warning: Some specified files were not found in the dataset repository.")
+                logging.warning("Some specified files were not found in the dataset repository.")
         else:
             files_to_process_remote = jsonl_files
 
@@ -239,17 +256,17 @@ def main():
                 local_path = download_and_get_local_path(args.repo_id, file_path, args.cache_dir, args.retry_count)
                 files_to_process.append((file_path, local_path))
             except Exception as e:
-                print(f"Failed to download {file_path}: {e}")
+                logging.error(f"Failed to download {file_path}: {e}")
 
     total_files = len(files_to_process)
     if total_files == 0:
-        print("No files to process. Check your local snapshot directory or repository settings.")
+        logging.error("No files to process. Check your local snapshot directory or repository settings.")
         return
 
     for idx, (relative_path, local_path) in enumerate(files_to_process, 1):
         process_file(local_path, print_contents=args.print_contents, summarize=args.summarize, rank=args.rank)
 
-    print('\nInspection completed')
+    logging.info('Inspection completed')
 
 
 if __name__ == '__main__':
