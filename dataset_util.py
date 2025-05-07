@@ -89,7 +89,7 @@ def dump_data(local_path):
 
 
 def classify_url(url, prompt):
-    return generate_one_shot(url, url, prompt)
+    return generate_one_shot(url, prompt)
 
 
 def generate_one_shot(text, prompt):
@@ -116,6 +116,7 @@ def process_file(local_path, print_contents=False, summarize=False, rank=False):
 
         key_terms = set()
         if summarize and rank:
+            print("Ranking summaries...")
             relations = stanford_relations(url_response)
             if "parseTree" in str(relations):
                 for sentence in relations['sentences']:
@@ -123,7 +124,7 @@ def process_file(local_path, print_contents=False, summarize=False, rank=False):
                     for token in tokens:
                         word = token.get('word')
                         pos = token.get('pos', '')
-                        if pos.startswith('N'):  # Nouns: NN, NNS, NNP, NNPS
+                        if pos.startswith('N') and word is not None:  # Nouns: NN, NNS, NNP, NNPS
                             key_terms.add(word.lower())
             print(f"Key Terms from URL: {key_terms}")
 
@@ -160,7 +161,8 @@ def summarize_text(text, rank, key_terms=None):
 
 def get_sort_key(file_path):
     """Extract sorting keys from the file path for sequential ordering."""
-    match = re.match(r'global-shard_(\d+)_of_\d+/local-shard_(\d+)_of_\d+/shard_(\d+)_processed\.jsonl\.zst', file_path)
+    match = re.match(r'global-shard_(\d+)_of_\d+/local-shard_(\d+)_of_\d+/shard_(\d+)_processed\.jsonl\.zst',
+                     file_path)
     if match:
         global_shard = int(match.group(1))
         local_shard = int(match.group(2))
