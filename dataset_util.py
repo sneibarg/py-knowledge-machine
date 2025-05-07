@@ -30,7 +30,7 @@ def stanford_relations(data):
         print(f"An error occurred getting relations: {e}")
 
 
-def mistral_one_shot(url, text, base_prompt):
+def mistral_one_shot(text, base_prompt):
     full_prompt = f"<s>[INST] {base_prompt} {text} [/INST]"
     payload = {
         "model": "mistral:7b-instruct-q4_0",
@@ -92,9 +92,9 @@ def classify_url(url, prompt):
     return generate_one_shot(url, url, prompt)
 
 
-def generate_one_shot(url, text, prompt):
+def generate_one_shot(text, prompt):
     print("Text: " + text)
-    mistral_response = mistral_one_shot(url, text, prompt)
+    mistral_response = mistral_one_shot(text, prompt)
     print("Mistral Response: " + mistral_response)
     relations = stanford_relations(mistral_response)
     if "parseTree" in str(relations):
@@ -128,15 +128,15 @@ def process_file(local_path, print_contents=False, summarize=False, rank=False):
             print(f"Key Terms from URL: {key_terms}")
 
         if print_contents and summarize:
-            summarize_text(url, text, rank, key_terms if rank else None)
+            summarize_text(text, rank, key_terms if rank else None)
             sys.exit(0)
 
 
-def summarize_text(url, text, rank, key_terms=None):
+def summarize_text(text, rank, key_terms=None):
     if rank and key_terms is not None:
         summaries = []
         for shot in range(max_shots):
-            summary = generate_one_shot(url, text, ontologist_prompt)
+            summary = generate_one_shot(text, ontologist_prompt)
             relations = stanford_relations(summary)
             summary_nouns = set()
             if "parseTree" in str(relations):
@@ -155,7 +155,7 @@ def summarize_text(url, text, rank, key_terms=None):
         for i, (summary, score) in enumerate(summaries, 1):
             print(f"Rank {i} (Score: {score}): {summary}")
     else:
-        generate_one_shot(url, text, ontologist_prompt)
+        generate_one_shot(text, ontologist_prompt)
 
 
 def get_sort_key(file_path):
