@@ -269,13 +269,14 @@ def worker_process(file_chunk: List[Tuple[str, str]], print_contents: bool, summ
 def init_worker(debug):
     """Initialize worker process with a logger."""
     global logger, worker_logger
+    if logger is None:
+        logger = setup_logging(debug)
     worker_logger = logger.getChild(f'Worker.{current_process().name}')
     worker_logger.setLevel(logging.DEBUG if debug else logging.INFO)
     worker_logger.info("Initialized worker.")
 
 
-def main() -> None:
-    global logger
+def parse_options():
     """Parse command-line arguments and inspect the dataset files in parallel."""
     parser = argparse.ArgumentParser(description="Inspect Hugging Face dataset files")
     parser.add_argument('repo_id', type=str, help='Dataset repository ID (e.g., mlfoundations/dclm-baseline-1.0)')
@@ -295,7 +296,12 @@ def main() -> None:
     if args.num_procs < 1:
         print("Error: --num-procs must be at least 1", file=sys.stderr)
         sys.exit(1)
+    return args
 
+
+def main() -> None:
+    global logger
+    args = parse_options()
     logger = setup_logging(args.debug)
     files_to_process: List[Tuple[str, str]] = []
     if args.local_snapshot_dir and os.path.isdir(args.local_snapshot_dir):
@@ -367,7 +373,6 @@ def main() -> None:
         worker_process(files_to_process, args.print_contents, args.summarize, args.rank, args.record_index,
                        args.distribute_shots)
     else:
-        print("Distributing work to workers.")
         with Pool(processes=args.num_procs, initializer=init_worker, initargs=(args.debug,)) as pool:
             pool.starmap(worker_process,
                          [(chunk, args.print_contents, args.summarize, args.rank, args.record_index,

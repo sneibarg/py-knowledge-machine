@@ -1,5 +1,7 @@
 import os
 import logging
+import sys
+
 import requests
 import json
 from datetime import datetime
@@ -15,18 +17,22 @@ os.makedirs(LOG_DIR, exist_ok=True)
 def setup_logging(debug=False):
     """Configure logging with a single file for all logs."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join(LOG_DIR, f"application_{timestamp}.log")
+    pid = os.getpid()
+    log_file = os.path.join(LOG_DIR, f"application_{timestamp}_{pid}.log")
     logging.getLogger('').handlers = []
     logger = logging.getLogger('OWL-to-KM')
     logger.setLevel(logging.INFO if not debug else logging.DEBUG)
     formatter = logging.Formatter("%(asctime)s [PID %(process)d] [%(levelname)s] [%(name)s] %(message)s")
-    file_handler = logging.FileHandler(log_file)
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
     if debug:
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(formatter)
+        if sys.platform.startswith('win'):
+            console_handler.stream = sys.stdout
+            console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
         logger.addHandler(console_handler)
 
     return logger
