@@ -143,7 +143,7 @@ def process_shot(text: str, shot: int, key_terms: set) -> Tuple[Optional[str], i
 
 
 def process_record(record: str, print_contents: bool, summarize: bool, rank: bool,
-                   record_index: Optional[int] = None, distribute_shots: bool = False) -> None:
+                   record_index: Optional[int] = None) -> None:
     """Process a single JSON record and log information about it."""
     try:
         record_data = json.loads(record)
@@ -167,7 +167,7 @@ def process_record(record: str, print_contents: bool, summarize: bool, rank: boo
             worker_logger.info(f"Key Terms from URL: {key_terms}")
 
         if print_contents and summarize:
-            summarize_text(text, rank, key_terms if rank else None, distribute_shots, record_index)
+            summarize_text(text, rank, key_terms if rank else None)
     except json.JSONDecodeError as e:
         if record_index is not None:
             worker_logger.error(f"Error parsing record at index {record_index}: {e}")
@@ -175,9 +175,9 @@ def process_record(record: str, print_contents: bool, summarize: bool, rank: boo
             worker_logger.error(f"Error parsing record: {e}")
 
 
-def process_file(args: Tuple[str, bool, bool, bool, Optional[int], bool]) -> None:
+def process_file(args: Tuple[str, bool, bool, bool, Optional[int]]) -> None:
     """Process a local .jsonl.zst file and log information about it."""
-    local_path, print_contents, summarize, rank, record_index, distribute_shots = args
+    local_path, print_contents, summarize, rank, record_index = args
     dataset = dump_data(local_path)
     if not dataset:
         worker_logger.error(f"No records found in file: {local_path}")
@@ -191,48 +191,36 @@ def process_file(args: Tuple[str, bool, bool, bool, Optional[int], bool]) -> Non
             worker_logger.error(f"Record index {record_index} out of range. File has {len(dataset)} records.")
             return
         worker_logger.info(f"Processing record at index {record_index} in file: {local_path}")
-        process_record(dataset[record_index], print_contents, summarize, rank, record_index, distribute_shots)
+        process_record(dataset[record_index], print_contents, summarize, rank, record_index)
     else:
-        if distribute_shots:
-            logging.warning(f"--distribute-shots is ignored when --record-index is not specified")
         worker_logger.info(f"Processing all records in file: {local_path}")
         for i, row in enumerate(dataset):
-            process_record(row, print_contents, summarize, rank, i, distribute_shots)
+            process_record(row, print_contents, summarize, rank, i)
 
 
-def summarize_text(text: str, rank: bool, key_terms: Optional[set] = None, distribute_shots: bool = False,
-                   record_index: Optional[int] = None) -> None:
+def summarize_text(text: str, rank: bool, key_terms: Optional[set] = None) -> None:
     if rank and key_terms is not None:
         summaries = []
-        if distribute_shots:
-            worker_logger.info(
-                f"Distributing {max_shots} shots for record {record_index if record_index is not None else 'unknown'} across processes")
-            with Pool() as pool:
-                results = pool.starmap(process_shot, [(text, shot, key_terms) for shot in range(max_shots)])
-                summaries = [(summary, score) for summary, score in results if summary is not None]
-        else:
-            for shot in range(max_shots):
-                summary = generate_one_shot(text, ontologist_prompt)
-                relations = stanford_relations(summary)
-                summary_nouns = set()
-                if "parseTree" in str(relations):
-                    for sentence in relations['sentences']:
-                        tokens = sentence.get('tokens', [])
-                        for token in tokens:
-                            word = token.get('word')
-                            pos = token.get('pos', '')
-                            if pos.startswith('N') and word is not None:
-                                summary_nouns.add(word.lower())
-                score = len(summary_nouns.intersection(key_terms))
-                summaries.append((summary, score))
+        for shot in range(max_shots):
+            summary = generate_one_shot(text, ontologist_prompt)
+            relations = stanford_relations(summary)
+            summary_nouns = set()
+            if "parseTree" in str(relations):
+                for sentence in relations['sentences']:
+                    tokens = sentence.get('tokens', [])
+                    for token in tokens:
+                        word = token.get('word')
+                        pos = token.get('pos', '')
+                        if pos.startswith('N') and word is not None:
+                            summary_nouns.add(word.lower())
+            score = len(summary_nouns.intersection(key_terms))
+            summaries.append((summary, score))
 
         summaries.sort(key=lambda x: x[1], reverse=True)
         worker_logger.info("Ranked Summaries:")
         for i, (summary, score) in enumerate(summaries, 1):
             worker_logger.info(f"Rank {i} (Score: {score}): {summary}")
     else:
-        if distribute_shots:
-            worker_logger.warning(f"--distribute-shots is ignored when --rank is not set")
         generate_one_shot(text, ontologist_prompt)
 
 
@@ -255,13 +243,13 @@ def split_files(files: List[Tuple[str, str]], num_procs: int) -> List[List[Tuple
 
 
 def worker_process(file_chunk: List[Tuple[str, str]], print_contents: bool, summarize: bool, rank: bool,
-                   record_index: Optional[int], distribute_shots: bool) -> None:
+                   record_index: Optional[int]) -> None:
     """Process a chunk of files in a worker process."""
     global worker_logger
     for relative_path, local_path in file_chunk:
         worker_logger.info(f"Processing file: {relative_path}")
         try:
-            process_file((local_path, print_contents, summarize, rank, record_index, distribute_shots))
+            process_file((local_path, print_contents, summarize, rank, record_index))
         except Exception as e:
             worker_logger.error(f"Error processing file {relative_path}: {e}")
 
@@ -289,8 +277,6 @@ def parse_options():
     parser.add_argument('--rank', action='store_true', help='Ten responses will be generated and ranked.')
     parser.add_argument('--num-procs', type=int, default=1, help='Number of processes to use for parallel processing')
     parser.add_argument('--record-index', type=int, default=None, help='Index of the record to process in each file')
-    parser.add_argument('--distribute-shots', action='store_true',
-                        help='Distribute shots for a specific record across processes (requires --record-index and --rank)')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     args = parser.parse_args()
     if args.num_procs < 1:
@@ -370,13 +356,11 @@ def main() -> None:
     if args.num_procs == 1:
         global worker_logger
         worker_logger = logger
-        worker_process(files_to_process, args.print_contents, args.summarize, args.rank, args.record_index,
-                       args.distribute_shots)
+        worker_process(files_to_process, args.print_contents, args.summarize, args.rank, args.record_index)
     else:
         with Pool(processes=args.num_procs, initializer=init_worker, initargs=(args.debug,)) as pool:
             pool.starmap(worker_process,
-                         [(chunk, args.print_contents, args.summarize, args.rank, args.record_index,
-                           args.distribute_shots)
+                         [(chunk, args.print_contents, args.summarize, args.rank, args.record_index)
                           for chunk in file_chunks])
 
     logger.info('Inspection completed')
