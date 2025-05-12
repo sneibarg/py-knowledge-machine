@@ -14,7 +14,7 @@ from huggingface_hub import HfApi, hf_hub_download
 
 from core import setup_logging
 
-logger = setup_logging(False)
+logger = None
 worker_logger = None
 SortKey = Tuple[Union[int, float], Union[int, float], Union[int, float]]
 nlp_api_url = "http://malboji:8069/nlp/relations"
@@ -113,21 +113,20 @@ def classify_url(url: str, prompt: str) -> Optional[str]:
 
 
 def generate_one_shot(text: str, prompt: str) -> Optional[str]:
-    logger.info(f"Text: {text}")
+    worker_logger.info(f"Text: {text}")
     mistral_response = mistral_one_shot(text, prompt)
-    logger.info(f"Mistral Response: {mistral_response}")
+    worker_logger.info(f"Mistral Response: {mistral_response}")
     relations = stanford_relations(mistral_response)
     if "parseTree" in str(relations):
         for sentence in relations['sentences']:
             parse_tree = sentence['parseTree']
-            logger.info(f"parseTree: {parse_tree}")
+            worker_logger.info(f"parseTree: {parse_tree}")
     return mistral_response
 
 
 def process_shot(text: str, shot: int, key_terms: set) -> Tuple[Optional[str], int]:
     """Process a single shot for summarization and return the summary and score."""
-    setup_logging(False)
-    logger.info(f"Processing shot {shot} for text")
+    worker_logger.info(f"Processing shot {shot} for text")
     summary = generate_one_shot(text, ontologist_prompt)
     relations = stanford_relations(summary)
     summary_nouns = set()
@@ -151,11 +150,11 @@ def process_record(record: str, print_contents: bool, summarize: bool, rank: boo
         text = record_data['text']
         url = record_data['url']
         url_response = classify_url(url, url_prompt)
-        logger.info(f"URL Description: {url_response}")
+        worker_logger.info(f"URL Description: {url_response}")
 
         key_terms = set()
         if summarize and rank:
-            logger.info("Ranking summaries...")
+            worker_logger.info("Ranking summaries...")
             relations = stanford_relations(url_response)
             if "parseTree" in str(relations):
                 for sentence in relations['sentences']:
@@ -165,15 +164,15 @@ def process_record(record: str, print_contents: bool, summarize: bool, rank: boo
                         pos = token.get('pos', '')
                         if pos.startswith('N') and word is not None:
                             key_terms.add(word.lower())
-            logger.info(f"Key Terms from URL: {key_terms}")
+            worker_logger.info(f"Key Terms from URL: {key_terms}")
 
         if print_contents and summarize:
             summarize_text(text, rank, key_terms if rank else None, distribute_shots, record_index)
     except json.JSONDecodeError as e:
         if record_index is not None:
-            logger.error(f"Error parsing record at index {record_index}: {e}")
+            worker_logger.error(f"Error parsing record at index {record_index}: {e}")
         else:
-            logger.error(f"Error parsing record: {e}")
+            worker_logger.error(f"Error parsing record: {e}")
 
 
 def process_file(args: Tuple[str, bool, bool, bool, Optional[int], bool]) -> None:
@@ -181,22 +180,22 @@ def process_file(args: Tuple[str, bool, bool, bool, Optional[int], bool]) -> Non
     local_path, print_contents, summarize, rank, record_index, distribute_shots = args
     dataset = dump_data(local_path)
     if not dataset:
-        logger.error(f"No records found in file: {local_path}")
+        worker_logger.error(f"No records found in file: {local_path}")
         return
 
     if record_index is not None:
         if not isinstance(record_index, int) or record_index < 0:
-            logger.error(f"Invalid record index: {record_index}. Must be a non-negative integer.")
+            worker_logger.error(f"Invalid record index: {record_index}. Must be a non-negative integer.")
             return
         if record_index >= len(dataset):
-            logger.error(f"Record index {record_index} out of range. File has {len(dataset)} records.")
+            worker_logger.error(f"Record index {record_index} out of range. File has {len(dataset)} records.")
             return
-        logger.info(f"Processing record at index {record_index} in file: {local_path}")
+        worker_logger.info(f"Processing record at index {record_index} in file: {local_path}")
         process_record(dataset[record_index], print_contents, summarize, rank, record_index, distribute_shots)
     else:
         if distribute_shots:
             logging.warning(f"--distribute-shots is ignored when --record-index is not specified")
-        logger.info(f"Processing all records in file: {local_path}")
+        worker_logger.info(f"Processing all records in file: {local_path}")
         for i, row in enumerate(dataset):
             process_record(row, print_contents, summarize, rank, i, distribute_shots)
 
@@ -206,7 +205,8 @@ def summarize_text(text: str, rank: bool, key_terms: Optional[set] = None, distr
     if rank and key_terms is not None:
         summaries = []
         if distribute_shots:
-            logger.info(f"Distributing {max_shots} shots for record {record_index if record_index is not None else 'unknown'} across processes")
+            worker_logger.info(
+                f"Distributing {max_shots} shots for record {record_index if record_index is not None else 'unknown'} across processes")
             with Pool() as pool:
                 results = pool.starmap(process_shot, [(text, shot, key_terms) for shot in range(max_shots)])
                 summaries = [(summary, score) for summary, score in results if summary is not None]
@@ -227,12 +227,12 @@ def summarize_text(text: str, rank: bool, key_terms: Optional[set] = None, distr
                 summaries.append((summary, score))
 
         summaries.sort(key=lambda x: x[1], reverse=True)
-        logger.info("Ranked Summaries:")
+        worker_logger.info("Ranked Summaries:")
         for i, (summary, score) in enumerate(summaries, 1):
-            logger.info(f"Rank {i} (Score: {score}): {summary}")
+            worker_logger.info(f"Rank {i} (Score: {score}): {summary}")
     else:
         if distribute_shots:
-            logging.warning(f"--distribute-shots is ignored when --rank is not set")
+            worker_logger.warning(f"--distribute-shots is ignored when --rank is not set")
         generate_one_shot(text, ontologist_prompt)
 
 
@@ -257,17 +257,25 @@ def split_files(files: List[Tuple[str, str]], num_procs: int) -> List[List[Tuple
 def worker_process(file_chunk: List[Tuple[str, str]], print_contents: bool, summarize: bool, rank: bool,
                    record_index: Optional[int], distribute_shots: bool) -> None:
     """Process a chunk of files in a worker process."""
-    global logger, worker_logger
-    worker_logger = logger.getChild(f'Worker.{current_process().name}')
+    global worker_logger
     for relative_path, local_path in file_chunk:
         worker_logger.info(f"Processing file: {relative_path}")
         try:
             process_file((local_path, print_contents, summarize, rank, record_index, distribute_shots))
         except Exception as e:
-            logger.error(f"Error processing file {relative_path}: {e}")
+            worker_logger.error(f"Error processing file {relative_path}: {e}")
+
+
+def init_worker(debug):
+    """Initialize worker process with a logger."""
+    global logger, worker_logger
+    worker_logger = logger.getChild(f'Worker.{current_process().name}')
+    worker_logger.setLevel(logging.DEBUG if debug else logging.INFO)
+    worker_logger.info("Initialized worker.")
 
 
 def main() -> None:
+    global logger
     """Parse command-line arguments and inspect the dataset files in parallel."""
     parser = argparse.ArgumentParser(description="Inspect Hugging Face dataset files")
     parser.add_argument('repo_id', type=str, help='Dataset repository ID (e.g., mlfoundations/dclm-baseline-1.0)')
@@ -282,12 +290,13 @@ def main() -> None:
     parser.add_argument('--record-index', type=int, default=None, help='Index of the record to process in each file')
     parser.add_argument('--distribute-shots', action='store_true',
                         help='Distribute shots for a specific record across processes (requires --record-index and --rank)')
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     args = parser.parse_args()
-
     if args.num_procs < 1:
         print("Error: --num-procs must be at least 1", file=sys.stderr)
         sys.exit(1)
 
+    logger = setup_logging(args.debug)
     files_to_process: List[Tuple[str, str]] = []
     if args.local_snapshot_dir and os.path.isdir(args.local_snapshot_dir):
         try:
@@ -353,12 +362,16 @@ def main() -> None:
     logger.info(f"Distributing {total_files} files across {args.num_procs} processes")
 
     if args.num_procs == 1:
+        global worker_logger
+        worker_logger = logger
         worker_process(files_to_process, args.print_contents, args.summarize, args.rank, args.record_index,
                        args.distribute_shots)
     else:
-        with Pool(processes=args.num_procs) as pool:
+        print("Distributing work to workers.")
+        with Pool(processes=args.num_procs, initializer=init_worker, initargs=(args.debug,)) as pool:
             pool.starmap(worker_process,
-                         [(chunk, args.print_contents, args.summarize, args.rank, args.record_index, args.distribute_shots)
+                         [(chunk, args.print_contents, args.summarize, args.rank, args.record_index,
+                           args.distribute_shots)
                           for chunk in file_chunks])
 
     logger.info('Inspection completed')

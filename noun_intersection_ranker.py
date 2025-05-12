@@ -8,7 +8,7 @@ class NounIntersectionRanker:
     def __init__(self, key_terms: Set[str], ontology: Set[str]):
         self.logger = logging.getLogger('OWL-to-KM.NounIntersectionRanker')
         self.key_terms = key_terms
-        self.cyc_concepts = ontology # TO-DO
+        self.cyc_concepts = ontology  # TO-DO
         self.logger.info("Initialized NounIntersectionRanker with %d key terms", len(key_terms))
 
     def extract_nouns(self, parse_tree: Dict) -> Set[str]:
@@ -22,7 +22,7 @@ class NounIntersectionRanker:
                 for token in sentence.get("tokens", []):
                     word = token.get("word")
                     pos = token.get("pos", "")
-                    if pos.startswith("N") and word is not None:  # Noun POS tags (e.g., NN, NNS)
+                    if pos.startswith("N") and word is not None:
                         nouns.add(word.lower())
             self.logger.debug("Extracted %d nouns from parse tree", len(nouns))
         else:
