@@ -5,9 +5,10 @@ from typing import List, Tuple, Set, Dict
 class NounIntersectionRanker:
     """A class to rank items based on the intersection of nouns from a parseTree with key terms."""
 
-    def __init__(self, key_terms: Set[str]):
+    def __init__(self, key_terms: Set[str], ontology: Set[str]):
         self.logger = logging.getLogger('OWL-to-KM.NounIntersectionRanker')
         self.key_terms = key_terms
+        self.cyc_concepts = ontology # TO-DO
         self.logger.info("Initialized NounIntersectionRanker with %d key terms", len(key_terms))
 
     def extract_nouns(self, parse_tree: Dict) -> Set[str]:
