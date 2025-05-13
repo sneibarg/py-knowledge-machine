@@ -118,7 +118,7 @@ def mistral_one_shot(text: str, base_prompt: str) -> Optional[str]:
         response = session.post(
             mistral_api_url,
             json=payload,
-            timeout=(5, 25)
+            timeout=(5, 360)
         )
         response.raise_for_status()
         end_time = time.time()
