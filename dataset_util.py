@@ -61,7 +61,7 @@ def stanford_relations(data: str) -> dict:
             nlp_api_url,
             data=data.encode('utf-8', errors='replace'),
             headers=headers,
-            timeout=(5, 360)
+            timeout=(120, 360)
         )
         response.raise_for_status()
         end_time = time.time()
@@ -118,7 +118,7 @@ def mistral_one_shot(text: str, base_prompt: str) -> Optional[str]:
         response = session.post(
             mistral_api_url,
             json=payload,
-            timeout=(5, 360)
+            timeout=(120, 360)
         )
         response.raise_for_status()
         end_time = time.time()
