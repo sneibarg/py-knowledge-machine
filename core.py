@@ -6,7 +6,7 @@ import requests
 import json
 from datetime import datetime
 
-BASE_DIR = os.getcwd()
+BASE_DIR = "/olmo"
 OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-2012-05-10.owl")
 FIXED_OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-2012-05-10_fixed.owl")
 LOG_DIR = os.path.join(BASE_DIR, "logs")

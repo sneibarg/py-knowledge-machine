@@ -19,7 +19,7 @@ logger = None
 worker_logger = None
 SortKey = Tuple[Union[int, float], Union[int, float], Union[int, float]]
 nlp_api_url = "http://malboji:8069/nlp/relations"
-mistral_api_url = "http://localhost:11434/api/generate"
+mistral_api_url = "http://malboji:11434/api/generate"
 max_shots = 10
 url_prompt = ("I am your automated ontology editor, and I am reviewing a Uniform Resource Locator."
               "I will generate a one sentence response describing the URL. The URL is: ")
@@ -61,7 +61,7 @@ def stanford_relations(data: str) -> dict:
             nlp_api_url,
             data=data.encode('utf-8', errors='replace'),
             headers=headers,
-            timeout=(5, 25)
+            timeout=(5, 360)
         )
         response.raise_for_status()
         end_time = time.time()
@@ -346,7 +346,7 @@ def init_worker(debug):
         logger = setup_logging(debug)
     worker_logger = logger.getChild(f'Worker.{current_process().name}')
     worker_logger.setLevel(logging.DEBUG if debug else logging.INFO)
-    
+
     session = requests.Session()
     adapter = requests.adapters.HTTPAdapter(
         pool_connections=10,
