@@ -11,7 +11,8 @@ from typing import List, Tuple, Union, Optional
 import requests
 import zstandard as zstd
 from huggingface_hub import HfApi, hf_hub_download
-
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import requests.exceptions
 from core import setup_logging
 
 logger = None
@@ -28,22 +29,84 @@ ontologist_prompt = ("I am your automated ontology editor, and I am reviewing da
                      "The following text you have given me is: ")
 
 
+session = requests.Session()
+adapter = requests.adapters.HTTPAdapter(
+    pool_connections=10,
+    pool_maxsize=10,
+    max_retries=0
+)
+session.mount('http://', adapter)
+session.mount('https://', adapter)
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((requests.exceptions.ConnectionError,
+                                   requests.exceptions.Timeout,
+                                   requests.exceptions.HTTPError)),
+    before_sleep=lambda retry_state: worker_logger.debug(
+        f"Retrying stanford_relations (attempt {retry_state.attempt_number}) after {retry_state.idle_for}s"
+    )
+)
 def stanford_relations(data: str) -> dict:
     headers = {'Content-Type': 'application/json'}
-    try:
-        start_time = time.time()
-        response = requests.post(nlp_api_url, data=data, headers=headers)
-        end_time = time.time()
-        duration = end_time - start_time
-        logger.info(f"REST call to {nlp_api_url} took {duration:.3f} seconds")
-        return response.json()
-    except Exception as e:
-        logger.error(f"An error occurred getting relations: {e}")
+    if not isinstance(data, str):
+        worker_logger.error(f"Invalid input type for stanford_relations: {type(data)}")
         return {}
 
+    try:
+        start_time = time.time()
+        response = session.post(
+            nlp_api_url,
+            data=data.encode('utf-8', errors='replace'),
+            headers=headers,
+            timeout=(5, 25)
+        )
+        response.raise_for_status()
+        end_time = time.time()
+        duration = end_time - start_time
+        worker_logger.info(f"REST call to {nlp_api_url} took {duration:.3f} seconds")
+        try:
+            return response.json()
+        except json.JSONDecodeError as e:
+            worker_logger.error(f"Invalid JSON response from {nlp_api_url}: {e}")
+            return {}
+    except requests.exceptions.Timeout as e:
+        worker_logger.error(f"Timeout error contacting {nlp_api_url}: {e}")
+        raise  # Let tenacity handle retries
+    except requests.exceptions.ConnectionError as e:
+        worker_logger.error(f"Connection error contacting {nlp_api_url}: {e}")
+        raise  # Let tenacity handle retries
+    except requests.exceptions.HTTPError as e:
+        if response.status_code == 429:
+            worker_logger.error(f"Rate limit exceeded for {nlp_api_url}: {e}")
+        elif response.status_code >= 500:
+            worker_logger.error(f"Server error from {nlp_api_url} (status {response.status_code}): {e}")
+            raise  # Retry 5xx errors
+        else:
+            worker_logger.error(f"HTTP error from {nlp_api_url} (status {response.status_code}): {e}")
+        return {}
+    except Exception as e:
+        worker_logger.error(f"Unexpected error in stanford_relations: {e}")
+        return {}
+    finally:
+        time.sleep(0.1)
 
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((requests.exceptions.ConnectionError,
+                                  requests.exceptions.Timeout,
+                                  requests.exceptions.HTTPError)),
+    before_sleep=lambda retry_state: worker_logger.debug(
+        f"Retrying mistral_one_shot (attempt {retry_state.attempt_number}) after {retry_state.idle_for}s"
+    )
+)
 def mistral_one_shot(text: str, base_prompt: str) -> Optional[str]:
-    full_prompt = f"<s>[INST] {base_prompt} {text} [/INST]"
+    safe_text = text.encode('utf-8', errors='replace').decode('utf-8') if text else ""
+    full_prompt = f"<s>[INST] {base_prompt} {safe_text} [/INST]"
     payload = {
         "model": "mistral:7b-instruct-q4_0",
         "prompt": full_prompt,
@@ -51,23 +114,45 @@ def mistral_one_shot(text: str, base_prompt: str) -> Optional[str]:
     }
 
     try:
+        start_time = time.time()
+        response = session.post(
+            mistral_api_url,
+            json=payload,
+            timeout=(5, 25)
+        )
+        response.raise_for_status()
+        end_time = time.time()
+        duration = end_time - start_time
+        worker_logger.info(f"REST call to {mistral_api_url} took {duration:.3f} seconds")
         try:
-            start_time = time.time()
-            response = requests.post(mistral_api_url, json=payload)
-            end_time = time.time()
-            duration = end_time - start_time
-            logger.info(f"REST call to {mistral_api_url} took {duration:.3f} seconds")
-            response.raise_for_status()
-            return response.json()['response']
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error communicating with Ollama server: {e}")
-        except json.JSONDecodeError:
-            logger.error("Invalid response format from Ollama server")
-        except KeyError:
-            logger.error("Unexpected response structure from Ollama server")
+            json_response = response.json()
+            if 'response' not in json_response:
+                worker_logger.error(f"Missing 'response' key in JSON from {mistral_api_url}")
+                return None
+            return json_response['response']
+        except json.JSONDecodeError as e:
+            worker_logger.error(f"Invalid JSON response from {mistral_api_url}: {e}")
+            return None
+    except requests.exceptions.Timeout as e:
+        worker_logger.error(f"Timeout error contacting {mistral_api_url}: {e}")
+        raise
+    except requests.exceptions.ConnectionError as e:
+        worker_logger.error(f"Connection error contacting {mistral_api_url}: {e}")
+        raise
+    except requests.exceptions.HTTPError as e:
+        if response.status_code == 429:
+            worker_logger.error(f"Rate limit exceeded for {mistral_api_url}: {e}")
+        elif response.status_code >= 500:
+            worker_logger.error(f"Server error from {mistral_api_url} (status {response.status_code}): {e}")
+            raise
+        else:
+            worker_logger.error(f"HTTP error from {mistral_api_url} (status {response.status_code}): {e}")
+        return None
     except Exception as e:
-        logger.error(f"An error occurred: {e}")
-    return None
+        worker_logger.error(f"Unexpected error in mistral_one_shot: {e}")
+        return None
+    finally:
+        time.sleep(0.1)
 
 
 def download_and_get_local_path(repo_id: str, file_path: str, cache_dir: Optional[str] = None,
@@ -255,13 +340,23 @@ def worker_process(file_chunk: List[Tuple[str, str]], print_contents: bool, summ
 
 
 def init_worker(debug):
-    """Initialize worker process with a logger."""
-    global logger, worker_logger
+    """Initialize worker process with a logger and session."""
+    global logger, worker_logger, session
     if logger is None:
         logger = setup_logging(debug)
     worker_logger = logger.getChild(f'Worker.{current_process().name}')
     worker_logger.setLevel(logging.DEBUG if debug else logging.INFO)
-    worker_logger.info("Initialized worker.")
+    
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(
+        pool_connections=10,
+        pool_maxsize=10,
+        max_retries=0
+    )
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+
+    worker_logger.info("Initialized worker with session.")
 
 
 def parse_options():
