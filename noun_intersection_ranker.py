@@ -1,11 +1,11 @@
 import logging
-from typing import List, Tuple, Set, Dict
+from typing import List, Tuple, Set, Dict, Optional
 
 
 class NounIntersectionRanker:
     """A class to rank items based on the intersection of nouns from a parseTree with key terms."""
 
-    def __init__(self, key_terms: Set[str], ontology: Set[str]):
+    def __init__(self, key_terms: Set[str], ontology: Optional[Set[str]]):
         self.logger = logging.getLogger('OWL-to-KM.NounIntersectionRanker')
         self.key_terms = key_terms
         self.cyc_concepts = ontology  # TO-DO

@@ -192,38 +192,14 @@ def dump_data(local_path: str) -> List[str]:
         return []
 
 
-def classify_url(url: str, prompt: str) -> Optional[str]:
+def classify_url(url: str, prompt: str) -> tuple[Optional[str], dict]:
     return generate_one_shot(url, prompt)
 
 
-def generate_one_shot(text: str, prompt: str) -> Optional[str]:
-    worker_logger.info(f"Text: {text}")
+def generate_one_shot(text: str, prompt: str) -> tuple[Optional[str], dict]:
     mistral_response = mistral_one_shot(text, prompt)
-    worker_logger.info(f"Mistral Response: {mistral_response}")
     relations = stanford_relations(mistral_response)
-    if "parseTree" in str(relations):
-        for sentence in relations['sentences']:
-            parse_tree = sentence['parseTree']
-            worker_logger.info(f"parseTree: {parse_tree}")
     return mistral_response, relations
-
-
-def process_shot(text: str, shot: int, key_terms: set) -> Tuple[Optional[str], int]:
-    """Process a single shot for summarization and return the summary and score."""
-    worker_logger.info(f"Processing shot {shot} for text")
-    summary, relations = generate_one_shot(text, ontologist_prompt)
-    relations = stanford_relations(summary)
-    summary_nouns = set()
-    if "parseTree" in str(relations):
-        for sentence in relations['sentences']:
-            tokens = sentence.get('tokens', [])
-            for token in tokens:
-                word = token.get('word')
-                pos = token.get('pos', '')
-                if pos.startswith('N') and word is not None:
-                    summary_nouns.add(word.lower())
-    score = len(summary_nouns.intersection(key_terms))
-    return summary, score
 
 
 def process_record(record: str, print_contents: bool, summarize: bool, rank: bool,
@@ -236,22 +212,13 @@ def process_record(record: str, print_contents: bool, summarize: bool, rank: boo
         url_response, relations = classify_url(url, url_prompt)
         worker_logger.info(f"URL Description: {url_response}")
 
-        key_terms = set()
+        if print_contents:
+            worker_logger.info(f"URL content: {text}")
+
         if summarize and rank:
             worker_logger.info("Ranking summaries...")
-            relations = stanford_relations(url_response)
-            if "parseTree" in str(relations):
-                for sentence in relations['sentences']:
-                    tokens = sentence.get('tokens', [])
-                    for token in tokens:
-                        word = token.get('word')
-                        pos = token.get('pos', '')
-                        if pos.startswith('N') and word is not None:
-                            key_terms.add(word.lower())
-            worker_logger.info(f"Key Terms from URL: {key_terms}")
-
-        if print_contents and summarize:
-            summarize_text(text, rank, key_terms if rank else None)
+            summary, relations = summarize_text(text, rank)
+            worker_logger.info(f"Summary: {summary}")
     except json.JSONDecodeError as e:
         if record_index is not None:
             worker_logger.error(f"Error parsing record at index {record_index}: {e}")
@@ -282,7 +249,7 @@ def process_file(args: Tuple[str, bool, bool, bool, Optional[int]]) -> None:
             process_record(row, print_contents, summarize, rank, i)
 
 
-def summarize_text(text: str, rank: bool, key_terms: Optional[set] = None) -> None:
+def summarize_text(text: str, rank: bool, key_terms: Optional[set] = None) -> tuple[Optional[str], dict]:
     if rank and key_terms is not None:
         summaries = []
         for shot in range(max_shots):
