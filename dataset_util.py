@@ -215,8 +215,7 @@ def process_record(record: str, print_contents: bool, summarize: bool, rank: boo
         if print_contents:
             worker_logger.info(f"URL content: {text}")
 
-        if summarize and rank:
-            worker_logger.info("Ranking summaries...")
+        if summarize:
             summary, relations = summarize_text(text, rank)
             worker_logger.info(f"Summary: {summary}")
     except json.JSONDecodeError as e:
