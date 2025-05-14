@@ -5,14 +5,13 @@ import os
 import re
 import sys
 import time
-from multiprocessing import Pool, current_process
-from typing import List, Tuple, Union, Optional
-
 import requests
 import zstandard as zstd
+import requests.exceptions
+from multiprocessing import Pool, current_process
+from typing import List, Tuple, Union, Optional
 from huggingface_hub import HfApi, hf_hub_download
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-import requests.exceptions
 from core import setup_logging
 
 logger = None
@@ -206,13 +205,13 @@ def generate_one_shot(text: str, prompt: str) -> Optional[str]:
         for sentence in relations['sentences']:
             parse_tree = sentence['parseTree']
             worker_logger.info(f"parseTree: {parse_tree}")
-    return mistral_response
+    return mistral_response, relations
 
 
 def process_shot(text: str, shot: int, key_terms: set) -> Tuple[Optional[str], int]:
     """Process a single shot for summarization and return the summary and score."""
     worker_logger.info(f"Processing shot {shot} for text")
-    summary = generate_one_shot(text, ontologist_prompt)
+    summary, relations = generate_one_shot(text, ontologist_prompt)
     relations = stanford_relations(summary)
     summary_nouns = set()
     if "parseTree" in str(relations):
@@ -234,7 +233,7 @@ def process_record(record: str, print_contents: bool, summarize: bool, rank: boo
         record_data = json.loads(record)
         text = record_data['text']
         url = record_data['url']
-        url_response = classify_url(url, url_prompt)
+        url_response, relations = classify_url(url, url_prompt)
         worker_logger.info(f"URL Description: {url_response}")
 
         key_terms = set()
@@ -287,7 +286,7 @@ def summarize_text(text: str, rank: bool, key_terms: Optional[set] = None) -> No
     if rank and key_terms is not None:
         summaries = []
         for shot in range(max_shots):
-            summary = generate_one_shot(text, ontologist_prompt)
+            summary, relations = generate_one_shot(text, ontologist_prompt)
             relations = stanford_relations(summary)
             summary_nouns = set()
             if "parseTree" in str(relations):
@@ -306,7 +305,7 @@ def summarize_text(text: str, rank: bool, key_terms: Optional[set] = None) -> No
         for i, (summary, score) in enumerate(summaries, 1):
             worker_logger.info(f"Rank {i} (Score: {score}): {summary}")
     else:
-        generate_one_shot(text, ontologist_prompt)
+        return generate_one_shot(text, ontologist_prompt)
 
 
 def get_sort_key(file_path: str) -> SortKey:
