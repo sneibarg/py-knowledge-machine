@@ -1,7 +1,6 @@
 import os
 import logging
 import sys
-
 import requests
 import json
 from datetime import datetime
@@ -51,7 +50,7 @@ def send_to_km(expr, fail_mode="fail", dry_run=False):
         response = requests.post(KM_SERVER_URL, data=json.dumps(payload), headers=headers, timeout=10)
         response.raise_for_status()
         logger.info("Successfully sent expression: %s...", expr[:100])
-        return response.json()
+        return {"success": True, "response: ": response.json()}
     except requests.exceptions.RequestException as e:
         logger.error("Failed to send expression: %s", str(e))
         return {"success": False, "error": str(e)}
