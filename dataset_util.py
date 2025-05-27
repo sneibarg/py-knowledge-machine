@@ -18,7 +18,7 @@ logger = None
 worker_logger = None
 SortKey = Tuple[Union[int, float], Union[int, float], Union[int, float]]
 nlp_api_url = "http://malboji:8069/nlp/relations"
-mistral_api_url = "http://malboji:11434/api/generate"
+mistral_api_url = "http://dragon:11435/api/generate"
 max_shots = 10
 url_prompt = ("I am your automated ontology editor, and I am reviewing a Uniform Resource Locator."
               "I will generate a one sentence response describing the URL. The URL is: ")
