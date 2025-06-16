@@ -225,8 +225,7 @@ def process_record(record: str, print_contents: bool, summarize: bool, rank: boo
             worker_logger.error(f"Error parsing record: {e}")
 
 
-def process_file(args: Tuple[str, bool, bool, bool, Optional[int]]) -> None:
-    """Process a local .jsonl.zst file and log information about it."""
+def process_zst(args: Tuple[str, bool, bool, bool, Optional[int]]) -> None:
     local_path, print_contents, summarize, rank, record_index = args
     dataset = dump_data(local_path)
     if not dataset:
@@ -299,7 +298,7 @@ def worker_process(file_chunk: List[Tuple[str, str]], print_contents: bool, summ
     for relative_path, local_path in file_chunk:
         worker_logger.info(f"Processing file: {relative_path}")
         try:
-            process_file((local_path, print_contents, summarize, rank, record_index))
+            process_zst((local_path, print_contents, summarize, rank, record_index))
         except Exception as e:
             worker_logger.error(f"Error processing file {relative_path}: {e}")
 

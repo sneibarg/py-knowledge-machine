@@ -1,8 +1,13 @@
+import sys
 import rdflib
 import json
 import re
+from rdflib import Namespace
 
+CYC = Namespace("http://sw.opencyc.org/concept/")
+CYCANNOT = Namespace("http://sw.cyc.com/CycAnnotations_v1#")
 cyc_annot_label = rdflib.URIRef("http://sw.cyc.com/CycAnnotations_v1#label")
+
 TYPE_PREDICATES = [
     rdflib.RDF.type,
     rdflib.URIRef("http://sw.opencyc.org/2008/06/10/concept/Mx4rBVVEokNxEdaAAACgydogAg")
@@ -10,8 +15,15 @@ TYPE_PREDICATES = [
 STANDARD_PREDICATES = {
     rdflib.RDF.type: "instance-of",
     rdflib.RDFS.subClassOf: "superclasses",
-    rdflib.RDFS.label: "label",
+    rdflib.RDFS.label: "prettyString",
     rdflib.OWL.sameAs: "same-as",
+    rdflib.OWL.disjointWith: "mustnt-be-a",
+    rdflib.RDFS.comment: "comment",
+    rdflib.RDFS.subPropertyOf: "subPropertyOf",
+    "Mx4rvViAzpwpEbGdrcN5Y29ycA": "datatype",
+    "Mx4rBVVEokNxEdaAAACgydogAg": "Quoted Isa",
+    "Mx4rwLSVCpwpEbGdrcN5Y29ycA": "prettyString",
+    "Mx4r8POVIYRHEdmd8gACs6hbCw": "prettyString-Canonical"
 }
 BUILT_IN_FRAMES = {
     "instance-of", "superclasses", "label", "Slot", "Class", "Thing", "has",
@@ -20,7 +32,6 @@ BUILT_IN_FRAMES = {
 
 
 def rdf_to_krl_name(uri):
-    """Convert an RDF URI to a KM-compatible name."""
     return str(uri).split('/')[-1]
 
 
@@ -94,6 +105,7 @@ class KMSyntaxGenerator:
 
     def class_to_km(self, class_uri):
         frame_name = self.get_resource_name(class_uri)
+        print(f"KM class given frame name {frame_name} for {class_uri}")
         slots = {}
         self.logger.debug("Converting class %s to KM syntax...", frame_name)
         for pred, obj in self.graph.predicate_objects(class_uri):
@@ -102,9 +114,17 @@ class KMSyntaxGenerator:
             slots.setdefault(slot_name, []).append(value)
         expr = f"({frame_name} has"
         for slot, values in slots.items():
-            expr += f" ({slot} ({' '.join(values)}))"
+            for value in values:
+                if value == "owl#Class":
+                    continue
+                if slot in STANDARD_PREDICATES:
+                    slot = STANDARD_PREDICATES[slot]
+                print(f"SLOT={slot}; VALUE={value}")
+                expr += f" ({slot} ({' '.join(values)}))"
         expr += ")"
+        print(f"Generated KM for class: {expr}")
         self.logger.debug("Generated KM for class: %s...", expr)
+        sys.exit(0)
         return expr
 
     def property_to_km(self, prop_uri):
