@@ -1,17 +1,84 @@
 import argparse
+import json
 import logging
 import os
+import re
 import sys
 import time
 import rdflib
-from core import setup_logging, send_to_km, FIXED_OWL_FILE
-from km_syntax import KMSyntaxGenerator
-from ontology_loader import load_ontology
-from multiprocessing import Pool, cpu_count, Manager, current_process
-from functools import partial
+from datetime import datetime
+from multiprocessing import Pool, Manager, current_process
+from KMSyntaxGenerator import KMSyntaxGenerator
+from OWLGraphProcessor import OWLGraphProcessor
+from OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, is_cyc_id, OpenCycService
 
 logger = None
 worker_logger = None
+manager = None
+successfully_sent = None
+failed_assertions = None
+BASE_DIR = os.getcwd()
+OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-2012-05-10.owl")
+FIXED_OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-2012-05-10_fixed.owl")
+TINY_OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-owl-tiny.owl")
+GO_OWL_FILE = os.path.join(BASE_DIR, 'opencyc-owl/go-basic.owl')
+LOG_DIR = os.path.join(BASE_DIR, "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+CAMEL_CASE_PATTERN = r"[A-Z][a-z]+([A-Z][a-z]*)*"
+HYPHEN = r"-"
+WORD_PATTERN = r"\w+"
+START_ANCHOR = r"^"
+END_ANCHOR = r"$"
+FUNCTION_GROUP = "function"
+ACTIVITY_GROUP = "activity"
+
+PATTERN = (
+    START_ANCHOR
+    + r"(?P<" + FUNCTION_GROUP + r">" + CAMEL_CASE_PATTERN + r")"
+    + HYPHEN
+    + r"(?P<" + ACTIVITY_GROUP + r">" + WORD_PATTERN + r")"
+    + END_ANCHOR
+)
+
+HAS_PATTERN = (
+    START_ANCHOR
+    + r"(?P<words>(\w+\s)*)"  # Zero or more words followed by a space
+    + r"has"
+    + END_ANCHOR
+)
+
+
+def lambda_match(input_str, pattern, anon_dict):
+    match = re.match(pattern, input_str)
+    if match:
+        named_captures = {k: v for k, v in match.groupdict().items() if v is not None}
+        return {**anon_dict, **named_captures}
+    else:
+        return anon_dict
+
+
+def setup_logging(debug=False):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    pid = os.getpid()
+    log_file = os.path.join(LOG_DIR, f"application_{timestamp}_{pid}.log")
+    logging.getLogger('').handlers = []
+    new_logger = logging.getLogger('OWL-to-KM')
+    new_logger.setLevel(logging.INFO if not debug else logging.DEBUG)
+    formatter = logging.Formatter("%(asctime)s [PID %(process)d] [%(levelname)s] [%(name)s] %(message)s")
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setFormatter(formatter)
+    new_logger.addHandler(file_handler)
+
+    if debug:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        if sys.platform.startswith('win'):
+            console_handler.stream = sys.stdout
+            console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
+        new_logger.addHandler(console_handler)
+
+    return new_logger
 
 
 def preprocess(graph):
@@ -27,7 +94,6 @@ def preprocess(graph):
 
 
 def init_worker(debug):
-    """Initialize worker process with a logger."""
     global logger, worker_logger
     worker_logger = logger.getChild(f'Worker.{current_process().name}')
     worker_logger.setLevel(logging.DEBUG if debug else logging.INFO)
@@ -37,11 +103,11 @@ def init_worker(debug):
 def translate_assertions(assertion_list, km_generator):
     translated_assertions = []
     for assertion in assertion_list:
-        translated_assertions.append(translate_assertion(assertion, km_generator))
+        translated_assertions.append(translate(assertion, km_generator))
     return translated_assertions
 
 
-def translate_assertion(assertion, km_generator):
+def translate(assertion, km_generator):
     assertion_type, uri = assertion
     if assertion_type == "class":
         expr = km_generator.class_to_km(uri)
@@ -56,38 +122,37 @@ def translate_assertion(assertion, km_generator):
     return expr
 
 
-def process_assertion(km_generator, assertion, successfully_sent, dry_run):
-    """Process a single assertion with dependency handling."""
+def process_assertion(assertion, dry_run, km_generator, km_service):
+    if assertion in successfully_sent:
+        return True
+
+    all_deps_successful = True
+    for ref in km_generator.get_referenced_assertions(assertion):
+        if ref not in successfully_sent and not process_assertion(ref, dry_run):
+            all_deps_successful = False
+            if ref not in successfully_sent and ref not in failed_assertions:
+                failed_assertions[ref] = "dependency_failure"
+
+    if not all_deps_successful:
+        failed_assertions[assertion] = "dependency_failure"
+        return False
+
     try:
-        refs = km_generator.get_referenced_assertions(assertion)
-        worker_logger.info(f"Found {str(len(refs))} referenced assertions for assertion: {assertion}.")
-        skip_send = False
-        for ref in refs:
-            if ref not in successfully_sent:
-                worker_logger.info("Processing dependency: %s", ref)
-                skip_send = process_assertion(km_generator, ref, successfully_sent, dry_run)
-
-        if skip_send:
-            worker_logger.info(f"Skipping sending assertion {assertion} due to missing dependencies!")
-            return False
-
-        result = send_to_km(assertion, dry_run=dry_run)
+        result = km_service.send_to_km(assertion, dry_run=dry_run)
         if result.get("success", False):
             successfully_sent[assertion] = assertion
-            worker_logger.info("Successfully sent assertion: %s...", assertion)
             return True
         else:
-            worker_logger.error("Failed to send assertion: %s", result)
+            failed_assertions[assertion] = "processing_failure"
             return False
     except Exception as e:
-        worker_logger.error("Error processing assertion: %s", str(e))
+        failed_assertions[assertion] = f"exception: {str(e)}"
         return False
 
 
-def extract_labels_and_ids(graph, logger):
-    """Extract labels and external IDs from the graph."""
-    child_logger = logger.getChild('LabelsExtractor')
-    child_logger.info("Extracting labels and IDs from graph...")
+def extract_labels_and_ids(graph, parent_logger):
+    child_logger = parent_logger.getChild('LabelsExtractor')
+    child_logger.info("Extracting labels and IDs from graph.")
     result = {}
     for subject in graph.subjects():
         label = next((str(obj) for obj in graph.objects(subject, rdflib.RDFS.label) if isinstance(obj, rdflib.Literal)),
@@ -100,34 +165,8 @@ def extract_labels_and_ids(graph, logger):
     return result
 
 
-class OWLGraphProcessor:
-    def __init__(self, num_processes, km_generator, graph, object_map, assertions, args, graph_logger):
-        self.graph = graph
-        self.object_map = object_map
-        self.args = args
-        self.assertions = assertions
-        self.manager = Manager()
-        self.successfully_sent = self.manager.dict()
-        self.pool = Pool(processes=num_processes, initializer=init_worker, initargs=(args.debug,))
-        self.logger = graph_logger.getChild('OWLGraphProcessor')
-        self.km_generator = km_generator
-        self.logger.info("Initialized with %d assertions.", len(assertions))
-
-    def run(self):
-        """Run the processing with multi-processing."""
-        self.logger.info("Starting processing in multi-threaded mode.")
-        start_time = time.time()
-        process_func = partial(process_assertion, self.km_generator, successfully_sent=self.successfully_sent,
-                               dry_run=self.args.dry_run)
-        results = self.pool.map(process_func, self.assertions)
-        self.pool.close()
-        self.pool.join()
-
-        elapsed_time = time.time() - start_time
-        successes = sum(results)
-        self.logger.info("Processing completed in %.2fs. Sent %d/%d assertions.", elapsed_time, successes,
-                         len(self.assertions))
-        return successes
+def is_ready(assertion, generator):
+    return all(ref in successfully_sent for ref in generator.get_referenced_assertions(assertion))
 
 
 def parse_arguments():
@@ -140,31 +179,46 @@ def parse_arguments():
 
 
 def main():
-    global logger
+    global manager, logger, successfully_sent, failed_assertions
+    pool = None
     args = parse_arguments()
-    num_processes = args.num_processes if args.num_processes else cpu_count()
     logger = setup_logging(args.debug)
-
     if not os.path.exists(FIXED_OWL_FILE):
         logger.error("Fixed OWL file not found at %s.", FIXED_OWL_FILE)
         sys.exit(1)
 
+    num_processes = args.num_processes if args.num_processes else 1
+    if num_processes > 1:
+        manager = Manager()
+        failed_assertions = manager.dict()
+        successfully_sent = manager.dict()
+        pool = Pool(processes=num_processes, initializer=init_worker, initargs=(args.debug,))
+
+    open_cyc_service = OpenCycService(logger)
+    processing_start = time.time()
     logger.info("Starting KM translation process.")
-    graph = load_ontology(logger)
-    object_map = extract_labels_and_ids(graph, logger)
-    km_generator = KMSyntaxGenerator(graph, object_map, logger)
-    assertions = preprocess(graph)
-    start_time = time.time()
+    owl_graph_processor = OWLGraphProcessor(logger,
+                                            TINY_OWL_FILE,
+                                            pool,
+                                            open_cyc_service.preprocess_cyc_file,
+                                            is_cyc_id,
+                                            args)
+    owl_graph_processor.set_annotation_label(CYC_ANNOT_LABEL)
+    owl_graph_processor.set_bases(CYC_BASES)
+    object_map = extract_labels_and_ids(owl_graph_processor.graph, logger)
+
+    km_generator = KMSyntaxGenerator(owl_graph_processor.graph, object_map, logger)
+    assertions = preprocess(owl_graph_processor.graph)
     translated_assertions = translate_assertions(assertions, km_generator)
-    elapsed_time = time.time() - start_time
+    logger.info(f"Translated {str(len(translated_assertions))} in {str(int(time.time() - processing_start))} seconds.")
     if args.translate_only:
-        logger.info(f"Translated {str(len(translated_assertions))} in {str(elapsed_time)} seconds.")
+        for assertion in translated_assertions:
+            logger.info("-------------------------------------------------------------------------------------------------")
+            logger.info("-------------------------------------------------------------------------------------------------")
+            logger.info(json.dumps(assertion, indent=2))
         sys.exit(0)
 
-    processor = OWLGraphProcessor(num_processes, km_generator, graph, object_map, translated_assertions, args, logger)
-    processor.run()
-
-    total_expressions = len(processor.successfully_sent)
+    total_expressions = len(owl_graph_processor.successfully_sent)
     logger.info("Processed and sent %d KRL expressions in total.", total_expressions)
 
 
