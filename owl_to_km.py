@@ -2,21 +2,83 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import time
 import rdflib
+from datetime import datetime
 from multiprocessing import Pool, Manager, current_process
 from KMSyntaxGenerator import KMSyntaxGenerator
 from OWLGraphProcessor import OWLGraphProcessor
-from core import setup_logging, FIXED_OWL_FILE, send_to_km, TINY_OWL_FILE, preprocess_cyc_file, CYC_ANNOT_LABEL, \
-    CYC_BASES, is_cyc_id
+from OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, is_cyc_id, OpenCycService
 
 logger = None
 worker_logger = None
-km_generator = None
 manager = None
 successfully_sent = None
 failed_assertions = None
+BASE_DIR = os.getcwd()
+OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-2012-05-10.owl")
+FIXED_OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-2012-05-10_fixed.owl")
+TINY_OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-owl-tiny.owl")
+GO_OWL_FILE = os.path.join(BASE_DIR, 'opencyc-owl/go-basic.owl')
+LOG_DIR = os.path.join(BASE_DIR, "logs")
+os.makedirs(LOG_DIR, exist_ok=True)
+
+CAMEL_CASE_PATTERN = r"[A-Z][a-z]+([A-Z][a-z]*)*"
+HYPHEN = r"-"
+WORD_PATTERN = r"\w+"
+START_ANCHOR = r"^"
+END_ANCHOR = r"$"
+FUNCTION_GROUP = "function"
+ACTIVITY_GROUP = "activity"
+
+PATTERN = (
+    START_ANCHOR
+    + r"(?P<" + FUNCTION_GROUP + r">" + CAMEL_CASE_PATTERN + r")"
+    + HYPHEN
+    + r"(?P<" + ACTIVITY_GROUP + r">" + WORD_PATTERN + r")"
+    + END_ANCHOR
+)
+
+HAS_PATTERN = (
+    START_ANCHOR
+    + r"(?P<words>(\w+\s)*)"  # Zero or more words followed by a space
+    + r"has"
+    + END_ANCHOR
+)
+
+
+def lambda_match(input_str, pattern, anon_dict):
+    match = re.match(pattern, input_str)
+    if match:
+        named_captures = {k: v for k, v in match.groupdict().items() if v is not None}
+        return {**anon_dict, **named_captures}
+    else:
+        return anon_dict
+
+
+def setup_logging(debug=False):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    pid = os.getpid()
+    log_file = os.path.join(LOG_DIR, f"application_{timestamp}_{pid}.log")
+    logging.getLogger('').handlers = []
+    new_logger = logging.getLogger('OWL-to-KM')
+    new_logger.setLevel(logging.INFO if not debug else logging.DEBUG)
+    formatter = logging.Formatter("%(asctime)s [PID %(process)d] [%(levelname)s] [%(name)s] %(message)s")
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setFormatter(formatter)
+    new_logger.addHandler(file_handler)
+
+    if debug:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        if sys.platform.startswith('win'):
+            console_handler.stream = sys.stdout
+            console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
+        new_logger.addHandler(console_handler)
+
+    return new_logger
 
 
 def preprocess(graph):
@@ -38,14 +100,14 @@ def init_worker(debug):
     worker_logger.info("Initialized worker.")
 
 
-def translate_assertions(assertion_list):
+def translate_assertions(assertion_list, km_generator):
     translated_assertions = []
     for assertion in assertion_list:
-        translated_assertions.append(translate(assertion))
+        translated_assertions.append(translate(assertion, km_generator))
     return translated_assertions
 
 
-def translate(assertion):
+def translate(assertion, km_generator):
     assertion_type, uri = assertion
     if assertion_type == "class":
         expr = km_generator.class_to_km(uri)
@@ -60,7 +122,7 @@ def translate(assertion):
     return expr
 
 
-def process_assertion(assertion, dry_run):
+def process_assertion(assertion, dry_run, km_generator, km_service):
     if assertion in successfully_sent:
         return True
 
@@ -76,7 +138,7 @@ def process_assertion(assertion, dry_run):
         return False
 
     try:
-        result = send_to_km(assertion, dry_run=dry_run)
+        result = km_service.send_to_km(assertion, dry_run=dry_run)
         if result.get("success", False):
             successfully_sent[assertion] = assertion
             return True
@@ -93,7 +155,6 @@ def extract_labels_and_ids(graph, parent_logger):
     child_logger.info("Extracting labels and IDs from graph.")
     result = {}
     for subject in graph.subjects():
-        # print(f"Subject {subject}")
         label = next((str(obj) for obj in graph.objects(subject, rdflib.RDFS.label) if isinstance(obj, rdflib.Literal)),
                      None)
         external_id = next(
@@ -118,7 +179,7 @@ def parse_arguments():
 
 
 def main():
-    global km_generator, manager, logger, successfully_sent, failed_assertions
+    global manager, logger, successfully_sent, failed_assertions
     pool = None
     args = parse_arguments()
     logger = setup_logging(args.debug)
@@ -133,20 +194,22 @@ def main():
         successfully_sent = manager.dict()
         pool = Pool(processes=num_processes, initializer=init_worker, initargs=(args.debug,))
 
+    open_cyc_service = OpenCycService(logger)
     processing_start = time.time()
     logger.info("Starting KM translation process.")
     owl_graph_processor = OWLGraphProcessor(logger,
                                             TINY_OWL_FILE,
                                             pool,
-                                            preprocess_cyc_file,
+                                            open_cyc_service.preprocess_cyc_file,
                                             is_cyc_id,
                                             args)
     owl_graph_processor.set_annotation_label(CYC_ANNOT_LABEL)
     owl_graph_processor.set_bases(CYC_BASES)
     object_map = extract_labels_and_ids(owl_graph_processor.graph, logger)
+
     km_generator = KMSyntaxGenerator(owl_graph_processor.graph, object_map, logger)
     assertions = preprocess(owl_graph_processor.graph)
-    translated_assertions = translate_assertions(assertions)
+    translated_assertions = translate_assertions(assertions, km_generator)
     logger.info(f"Translated {str(len(translated_assertions))} in {str(int(time.time() - processing_start))} seconds.")
     if args.translate_only:
         for assertion in translated_assertions:
