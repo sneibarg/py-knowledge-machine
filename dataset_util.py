@@ -2,21 +2,20 @@ import argparse
 import json
 import logging
 import os
-import re
 import sys
 import time
 import requests
-import zstandard as zstd
 import requests.exceptions
 from multiprocessing import Pool, current_process
-from typing import List, Tuple, Union, Optional
-from huggingface_hub import HfApi, hf_hub_download
+from typing import List, Tuple, Optional
+from huggingface_hub import HfApi
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+from HuggingFaceDatasetService import HuggingFaceDatasetService
 from core import setup_logging
 
 logger = None
 worker_logger = None
-SortKey = Tuple[Union[int, float], Union[int, float], Union[int, float]]
 nlp_api_url = "http://malboji:8069/nlp/relations"
 mistral_api_url = "http://dragon:11435/api/generate"
 max_shots = 10
@@ -26,7 +25,6 @@ ontologist_prompt = ("I am your automated ontology editor, and I am reviewing da
                      "to validate and assert to our knowledge and understanding. "
                      "I will ignore formalities, not be verbose, and respond with only the facts. "
                      "The following text you have given me is: ")
-
 
 session = requests.Session()
 adapter = requests.adapters.HTTPAdapter(
@@ -73,16 +71,16 @@ def stanford_relations(data: str) -> dict:
             return {}
     except requests.exceptions.Timeout as e:
         worker_logger.error(f"Timeout error contacting {nlp_api_url}: {e}")
-        raise  # Let tenacity handle retries
+        raise
     except requests.exceptions.ConnectionError as e:
         worker_logger.error(f"Connection error contacting {nlp_api_url}: {e}")
-        raise  # Let tenacity handle retries
+        raise
     except requests.exceptions.HTTPError as e:
         if response.status_code == 429:
             worker_logger.error(f"Rate limit exceeded for {nlp_api_url}: {e}")
         elif response.status_code >= 500:
             worker_logger.error(f"Server error from {nlp_api_url} (status {response.status_code}): {e}")
-            raise  # Retry 5xx errors
+            raise
         else:
             worker_logger.error(f"HTTP error from {nlp_api_url} (status {response.status_code}): {e}")
         return {}
@@ -97,8 +95,8 @@ def stanford_relations(data: str) -> dict:
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
     retry=retry_if_exception_type((requests.exceptions.ConnectionError,
-                                  requests.exceptions.Timeout,
-                                  requests.exceptions.HTTPError)),
+                                   requests.exceptions.Timeout,
+                                   requests.exceptions.HTTPError)),
     before_sleep=lambda retry_state: worker_logger.debug(
         f"Retrying mistral_one_shot (attempt {retry_state.attempt_number}) after {retry_state.idle_for}s"
     )
@@ -154,44 +152,6 @@ def mistral_one_shot(text: str, base_prompt: str) -> Optional[str]:
         time.sleep(0.1)
 
 
-def download_and_get_local_path(repo_id: str, file_path: str, cache_dir: Optional[str] = None,
-                                retry_count: int = 3) -> str:
-    """Download a file from the Hugging Face Hub with retries and return its local path."""
-    for attempt in range(retry_count):
-        try:
-            logger.info(f'Downloading {file_path}, attempt {attempt + 1}')
-            local_path = hf_hub_download(
-                repo_id=repo_id,
-                filename=file_path,
-                repo_type='dataset',
-                cache_dir=cache_dir
-            )
-            logger.info(f'Successfully downloaded {file_path} to {local_path}')
-            return local_path
-        except (TimeoutError, ConnectionError) as ce:
-            logging.warning(f'Attempt {attempt + 1}/{retry_count} for {file_path} failed: {ce}')
-            if attempt < retry_count - 1:
-                time.sleep(30)
-            else:
-                logger.error(f'Max retries reached for {file_path}')
-                raise
-        except Exception as ue:
-            logger.error(f'Unexpected error downloading {file_path}: {ue}')
-            raise
-
-
-def dump_data(local_path: str) -> List[str]:
-    lines = []
-    try:
-        with zstd.open(local_path, 'rt') as f:
-            for line in f:
-                lines.append(line)
-        return lines
-    except Exception as e:
-        logger.error(f"Error processing file: {e}")
-        return []
-
-
 def classify_url(url: str, prompt: str) -> tuple[Optional[str], dict]:
     return generate_one_shot(url, prompt)
 
@@ -225,9 +185,9 @@ def process_record(record: str, print_contents: bool, summarize: bool, rank: boo
             worker_logger.error(f"Error parsing record: {e}")
 
 
-def process_zst(args: Tuple[str, bool, bool, bool, Optional[int]]) -> None:
-    local_path, print_contents, summarize, rank, record_index = args
-    dataset = dump_data(local_path)
+def process_zst(args: Tuple[str, bool, bool, bool, HuggingFaceDatasetService, Optional[int]]) -> None:
+    local_path, print_contents, summarize, rank, data_agent, record_index = args
+    dataset = data_agent.dump_zstd(local_path)
     if not dataset:
         worker_logger.error(f"No records found in file: {local_path}")
         return
@@ -273,32 +233,14 @@ def summarize_text(text: str, rank: bool, key_terms: Optional[set] = None) -> tu
         return generate_one_shot(text, ontologist_prompt)
 
 
-def get_sort_key(file_path: str) -> SortKey:
-    """Extract sorting keys from the file path for sequential ordering."""
-    match = re.match(r'global-shard_(\d+)_of_\d+/local-shard_(\d+)_of_\d+/shard_(\d+)_processed\.jsonl\.zst',
-                     file_path)
-    if match:
-        global_shard = int(match.group(1))
-        local_shard = int(match.group(2))
-        shard_number = int(match.group(3))
-        return global_shard, local_shard, shard_number
-    return float('inf'), float('inf'), float('inf')
-
-
-def split_files(files: List[Tuple[str, str]], num_procs: int) -> List[List[Tuple[str, str]]]:
-    """Split files into chunks for each process."""
-    chunk_size = max(1, len(files) // num_procs)
-    return [files[i:i + chunk_size] for i in range(0, len(files), chunk_size)]
-
-
 def worker_process(file_chunk: List[Tuple[str, str]], print_contents: bool, summarize: bool, rank: bool,
-                   record_index: Optional[int]) -> None:
+                   data_agent: HuggingFaceDatasetService, record_index: Optional[int]) -> None:
     """Process a chunk of files in a worker process."""
     global worker_logger
     for relative_path, local_path in file_chunk:
         worker_logger.info(f"Processing file: {relative_path}")
         try:
-            process_zst((local_path, print_contents, summarize, rank, record_index))
+            process_zst((local_path, print_contents, summarize, rank, data_agent, record_index))
         except Exception as e:
             worker_logger.error(f"Error processing file {relative_path}: {e}")
 
@@ -349,6 +291,7 @@ def main() -> None:
     args = parse_options()
     logger = setup_logging(args.debug)
     files_to_process: List[Tuple[str, str]] = []
+    data_agent = HuggingFaceDatasetService(logger)
     if args.local_snapshot_dir and os.path.isdir(args.local_snapshot_dir):
         try:
             refs_path = os.path.join(args.local_snapshot_dir, 'refs', 'main')
@@ -371,7 +314,7 @@ def main() -> None:
             if not files_to_process:
                 raise FileNotFoundError(f"No .jsonl.zst files found in {snapshot_dir} or its subdirectories")
 
-            files_to_process.sort(key=lambda x: get_sort_key(x[0]))
+            files_to_process.sort(key=lambda x: data_agent.get_sort_key(x[0]))
             logger.info(f"Found {len(files_to_process)} .jsonl.zst files in the local snapshot.")
 
             if args.files:
@@ -396,10 +339,10 @@ def main() -> None:
         else:
             files_to_process_remote = jsonl_files
 
-        files_to_process_remote.sort(key=lambda x: get_sort_key(x))
+        files_to_process_remote.sort(key=lambda x: data_agent.get_sort_key(x))
         for file_path in files_to_process_remote:
             try:
-                local_path = download_and_get_local_path(args.repo_id, file_path, args.cache_dir, args.retry_count)
+                local_path = data_agent.download(args.repo_id, file_path, args.cache_dir, args.retry_count)
                 files_to_process.append((file_path, local_path))
             except Exception as e:
                 logger.error(f"Failed to download {file_path}: {e}")
@@ -409,7 +352,7 @@ def main() -> None:
         logger.error("No files to process. Check your local snapshot directory or repository settings.")
         return
 
-    file_chunks = split_files(files_to_process, args.num_procs)
+    file_chunks = data_agent.split_files(files_to_process, args.num_procs)
     logger.info(f"Distributing {total_files} files across {args.num_procs} processes")
 
     if args.num_procs == 1:

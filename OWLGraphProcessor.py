@@ -5,7 +5,6 @@ import rdflib
 from collections import defaultdict
 from functools import partial
 from rdflib import Literal, URIRef, RDFS, RDF, OWL
-
 from KMSyntaxGenerator import STANDARD_PREDICATES
 
 BASES = []
@@ -165,8 +164,8 @@ class OWLGraphProcessor:
         """Load the ontology, preprocessing if necessary."""
         start_time = time.time()
         onto_logger = logger.getChild('OntologyLoader')
-        if not os.path.exists(ontology):
-            onto_logger.info("Fixed OWL file not found. Triggering preprocessing.")
+        if not os.path.exists(ontology) and preprocessor is not None:
+            onto_logger.info("Preprocessed OWL file not found. Triggering preprocessing.")
             preprocessor(logger)
         else:
             print(f"Using existing OWL file: {ontology}")
