@@ -24,9 +24,13 @@ class OWLGraphProcessor:
         self.successfully_sent = successfully_sent
         self.logger = parent_logger.getChild('OWL-Graph-Processor')
 
-    def run(self):
+    def run(self) -> int:
         remaining_assertions = set(assertions)
         progress_made = True
+
+        if self.pool is None:
+            self.logger.info("Attempted to invoke run() without a ForkJoinPool.")
+            return 0
 
         while remaining_assertions and progress_made:
             new_remaining = set()
@@ -43,8 +47,8 @@ class OWLGraphProcessor:
             remaining_assertions = new_remaining
 
         if remaining_assertions:
-            print(f"Unprocessed assertions: {len(remaining_assertions)}")
-            print(f"Failure reasons: {dict(failed_assertions)}")
+            self.logger.info(f"Unprocessed assertions: {len(remaining_assertions)}")
+            self.logger.info(f"Failure reasons: {dict(failed_assertions)}")
 
         return len(self.successfully_sent)
 

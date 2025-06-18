@@ -5,24 +5,37 @@ import os
 import re
 import sys
 import time
+import requests
 import rdflib
-from datetime import datetime
+
+from typing import Tuple, Optional, List
 from multiprocessing import Pool, Manager, current_process
+from DatasetProcessor import DatasetProcessor
+from HuggingFaceDatasetService import HuggingFaceDatasetService
 from KMSyntaxGenerator import KMSyntaxGenerator
+from LoggingService import LoggingService
 from OWLGraphProcessor import OWLGraphProcessor
 from OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, is_cyc_id, OpenCycService
 
-logger = None
-worker_logger = None
-manager = None
-successfully_sent = None
-failed_assertions = None
 BASE_DIR = os.getcwd()
+LOG_DIR = os.path.join(BASE_DIR, "logs")
 OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-2012-05-10.owl")
 FIXED_OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-2012-05-10_fixed.owl")
 TINY_OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-owl-tiny.owl")
 GO_OWL_FILE = os.path.join(BASE_DIR, 'opencyc-owl/go-basic.owl')
-LOG_DIR = os.path.join(BASE_DIR, "logs")
+
+adapter = None
+session = None
+logging_service = LoggingService(LOG_DIR, "OWL-to-KM")
+logger = logging_service.setup_logging(False)
+worker_logger = None
+manager = None
+pool = None
+successfully_sent = None
+failed_assertions = None
+
+open_cyc_service = OpenCycService(logger)
+
 os.makedirs(LOG_DIR, exist_ok=True)
 
 CAMEL_CASE_PATTERN = r"[A-Z][a-z]+([A-Z][a-z]*)*"
@@ -34,18 +47,18 @@ FUNCTION_GROUP = "function"
 ACTIVITY_GROUP = "activity"
 
 PATTERN = (
-    START_ANCHOR
-    + r"(?P<" + FUNCTION_GROUP + r">" + CAMEL_CASE_PATTERN + r")"
-    + HYPHEN
-    + r"(?P<" + ACTIVITY_GROUP + r">" + WORD_PATTERN + r")"
-    + END_ANCHOR
+        START_ANCHOR
+        + r"(?P<" + FUNCTION_GROUP + r">" + CAMEL_CASE_PATTERN + r")"
+        + HYPHEN
+        + r"(?P<" + ACTIVITY_GROUP + r">" + WORD_PATTERN + r")"
+        + END_ANCHOR
 )
 
 HAS_PATTERN = (
-    START_ANCHOR
-    + r"(?P<words>(\w+\s)*)"  # Zero or more words followed by a space
-    + r"has"
-    + END_ANCHOR
+        START_ANCHOR
+        + r"(?P<words>(\w+\s)*)"
+        + r"has"
+        + END_ANCHOR
 )
 
 
@@ -56,29 +69,6 @@ def lambda_match(input_str, pattern, anon_dict):
         return {**anon_dict, **named_captures}
     else:
         return anon_dict
-
-
-def setup_logging(debug=False):
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    pid = os.getpid()
-    log_file = os.path.join(LOG_DIR, f"application_{timestamp}_{pid}.log")
-    logging.getLogger('').handlers = []
-    new_logger = logging.getLogger('OWL-to-KM')
-    new_logger.setLevel(logging.INFO if not debug else logging.DEBUG)
-    formatter = logging.Formatter("%(asctime)s [PID %(process)d] [%(levelname)s] [%(name)s] %(message)s")
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setFormatter(formatter)
-    new_logger.addHandler(file_handler)
-
-    if debug:
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        if sys.platform.startswith('win'):
-            console_handler.stream = sys.stdout
-            console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
-        new_logger.addHandler(console_handler)
-
-    return new_logger
 
 
 def preprocess(graph):
@@ -93,11 +83,59 @@ def preprocess(graph):
     return assertions
 
 
+def process_zst(args: Tuple[str, bool, bool, bool, HuggingFaceDatasetService, DatasetProcessor, Optional[int]]) -> None:
+    local_path, print_contents, summarize, rank, data_agent, dataset_processor, record_index = args
+    dataset = data_agent.dump_zstd(local_path)
+    if not dataset:
+        logger.error(f"No records found in file: {local_path}")
+        return
+
+    if record_index is not None:
+        if not isinstance(record_index, int) or record_index < 0:
+            logger.error(f"Invalid record index: {record_index}. Must be a non-negative integer.")
+            return
+        if record_index >= len(dataset):
+            logger.error(f"Record index {record_index} out of range. File has {len(dataset)} records.")
+            return
+        logger.info(f"Processing record at index {record_index} in file: {local_path}")
+        dataset_processor.process_record(dataset[record_index], print_contents, summarize, rank, record_index)
+    else:
+        logger.info(f"Processing all records in file: {local_path}")
+        for i, row in enumerate(dataset):
+            dataset_processor.process_record(row, print_contents, summarize, rank, i)
+
+
+def worker_process(file_chunk: List[Tuple[str, str]],
+                   print_contents: bool,
+                   summarize: bool,
+                   rank: bool,
+                   data_agent: HuggingFaceDatasetService,
+                   dataset_processor: DatasetProcessor,
+                   record_index: Optional[int]) -> None:
+    for relative_path, local_path in file_chunk:
+        worker_logger.info(f"Processing file: {relative_path}")
+        try:
+            process_zst((local_path, print_contents, summarize, rank, data_agent, dataset_processor, record_index))
+        except Exception as e:
+            worker_logger.error(f"Error processing file {relative_path}: {e}")
+
+
 def init_worker(debug):
-    global logger, worker_logger
+    global adapter, session, worker_logger
+
     worker_logger = logger.getChild(f'Worker.{current_process().name}')
     worker_logger.setLevel(logging.DEBUG if debug else logging.INFO)
-    worker_logger.info("Initialized worker.")
+
+    session = requests.Session()
+    adapter = requests.adapters.HTTPAdapter(
+        pool_connections=10,
+        pool_maxsize=10,
+        max_retries=0
+    )
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+
+    worker_logger.info("Initialized worker with session.")
 
 
 def translate_assertions(assertion_list, km_generator):
@@ -179,22 +217,23 @@ def parse_arguments():
 
 
 def main():
-    global manager, logger, successfully_sent, failed_assertions
-    pool = None
     args = parse_arguments()
-    logger = setup_logging(args.debug)
+    num_processes = args.num_processes if args.num_processes else 1
+
+    if args.debug is True:
+        logger.setLevel(logging.DEBUG)
+
     if not os.path.exists(FIXED_OWL_FILE):
         logger.error("Fixed OWL file not found at %s.", FIXED_OWL_FILE)
         sys.exit(1)
 
-    num_processes = args.num_processes if args.num_processes else 1
     if num_processes > 1:
+        global pool, manager, failed_assertions, successfully_sent
         manager = Manager()
         failed_assertions = manager.dict()
         successfully_sent = manager.dict()
         pool = Pool(processes=num_processes, initializer=init_worker, initargs=(args.debug,))
 
-    open_cyc_service = OpenCycService(logger)
     processing_start = time.time()
     logger.info("Starting KM translation process.")
     owl_graph_processor = OWLGraphProcessor(logger,
@@ -213,8 +252,10 @@ def main():
     logger.info(f"Translated {str(len(translated_assertions))} in {str(int(time.time() - processing_start))} seconds.")
     if args.translate_only:
         for assertion in translated_assertions:
-            logger.info("-------------------------------------------------------------------------------------------------")
-            logger.info("-------------------------------------------------------------------------------------------------")
+            logger.info(
+                "-------------------------------------------------------------------------------------------------")
+            logger.info(
+                "-------------------------------------------------------------------------------------------------")
             logger.info(json.dumps(assertion, indent=2))
         sys.exit(0)
 

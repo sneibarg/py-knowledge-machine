@@ -4,8 +4,6 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime
-
 import requests
 import requests.exceptions
 from multiprocessing import Pool, current_process
@@ -13,8 +11,8 @@ from typing import List, Tuple, Optional
 from huggingface_hub import HfApi
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from HuggingFaceDatasetService import HuggingFaceDatasetService
+from LoggingService import LoggingService
 
-logger = None
 nlp_api_url = "http://malboji:8069/nlp/relations"
 mistral_api_url = "http://dragon:11435/api/generate"
 url_prompt = ("I am your automated ontology editor, and I am reviewing a Uniform Resource Locator."
@@ -32,34 +30,12 @@ adapter = requests.adapters.HTTPAdapter(
 )
 session.mount('http://', adapter)
 session.mount('https://', adapter)
+logging_service = LoggingService('DataProcessor', os.path.join(os.getcwd(), "logs"))
+logger = logging_service.setup_logging(False)
+worker_logger = None
 
 
-def setup_logging(log_directory, debug=False):
-    global logger
-    """Configure logging with a single file for all logs."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    pid = os.getpid()
-    log_file = os.path.join(log_directory, f"application_{timestamp}_{pid}.log")
-    logging.getLogger('').handlers = []
-    logger = logging.getLogger('OWL-to-KM')
-    logger.setLevel(logging.INFO if not debug else logging.DEBUG)
-    formatter = logging.Formatter("%(asctime)s [PID %(process)d] [%(levelname)s] [%(name)s] %(message)s")
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-
-    if debug:
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        if sys.platform.startswith('win'):
-            console_handler.stream = sys.stdout
-            console_handler.stream.reconfigure(encoding='utf-8', errors='replace')
-        logger.addHandler(console_handler)
-
-    return logger
-
-
-def parse_options():
+def parse_options() -> argparse.Namespace:
     """Parse command-line arguments and inspect the dataset files in parallel."""
     parser = argparse.ArgumentParser(description="Inspect Hugging Face dataset files")
     parser.add_argument('repo_id', type=str, help='Dataset repository ID (e.g., mlfoundations/dclm-baseline-1.0)')
@@ -81,7 +57,6 @@ def parse_options():
 
 
 def process(args) -> None:
-    global logger
     files_to_process: List[Tuple[str, str]] = []
     data_agent = HuggingFaceDatasetService(logger)
     dataset_processor = DatasetProcessor(logger)
@@ -159,38 +134,6 @@ def process(args) -> None:
                           for chunk in file_chunks])
 
     logger.info('Inspection completed')
-
-
-def worker_process(file_chunk: List[Tuple[str, str]], print_contents: bool, summarize: bool, rank: bool,
-                   data_agent: HuggingFaceDatasetService, record_index: Optional[int]) -> None:
-    """Process a chunk of files in a worker process."""
-    global worker_logger
-    for relative_path, local_path in file_chunk:
-        worker_logger.info(f"Processing file: {relative_path}")
-        try:
-            process_zst((local_path, print_contents, summarize, rank, data_agent, record_index))
-        except Exception as e:
-            worker_logger.error(f"Error processing file {relative_path}: {e}")
-
-
-def init_worker(debug):
-    """Initialize worker process with a logger and session."""
-    global logger, worker_logger, session
-    if logger is None:
-        logger = setup_logging(debug)
-    worker_logger = logger.getChild(f'Worker.{current_process().name}')
-    worker_logger.setLevel(logging.DEBUG if debug else logging.INFO)
-
-    session = requests.Session()
-    adapter = requests.adapters.HTTPAdapter(
-        pool_connections=10,
-        pool_maxsize=10,
-        max_retries=0
-    )
-    session.mount('http://', adapter)
-    session.mount('https://', adapter)
-
-    worker_logger.info("Initialized worker with session.")
 
 
 class DatasetProcessor:
@@ -367,26 +310,3 @@ class DatasetProcessor:
                 self.logger.error(f"Error parsing record at index {record_index}: {e}")
             else:
                 self.logger.error(f"Error parsing record: {e}")
-
-
-def process_zst(args: Tuple[str, bool, bool, bool, HuggingFaceDatasetService, DatasetProcessor, Optional[int]]) -> None:
-    global logger
-    local_path, print_contents, summarize, rank, data_agent, dataset_processor, record_index = args
-    dataset = data_agent.dump_zstd(local_path)
-    if not dataset:
-        logger.error(f"No records found in file: {local_path}")
-        return
-
-    if record_index is not None:
-        if not isinstance(record_index, int) or record_index < 0:
-            logger.error(f"Invalid record index: {record_index}. Must be a non-negative integer.")
-            return
-        if record_index >= len(dataset):
-            logger.error(f"Record index {record_index} out of range. File has {len(dataset)} records.")
-            return
-        logger.info(f"Processing record at index {record_index} in file: {local_path}")
-        dataset_processor.process_record(dataset[record_index], print_contents, summarize, rank, record_index)
-    else:
-        logger.info(f"Processing all records in file: {local_path}")
-        for i, row in enumerate(dataset):
-            dataset_processor.process_record(row, print_contents, summarize, rank, i)
