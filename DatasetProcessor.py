@@ -1,12 +1,11 @@
-import argparse
 import json
 import logging
 import os
-import sys
 import time
 import requests
 import requests.exceptions
-from multiprocessing import Pool, current_process
+
+from multiprocessing import Pool
 from typing import List, Tuple, Optional
 from huggingface_hub import HfApi
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -35,110 +34,19 @@ logger = logging_service.setup_logging(False)
 worker_logger = None
 
 
-def parse_options() -> argparse.Namespace:
-    """Parse command-line arguments and inspect the dataset files in parallel."""
-    parser = argparse.ArgumentParser(description="Inspect Hugging Face dataset files")
-    parser.add_argument('repo_id', type=str, help='Dataset repository ID (e.g., mlfoundations/dclm-baseline-1.0)')
-    parser.add_argument('--local-snapshot-dir', type=str, help='Path to local snapshot directory')
-    parser.add_argument('--files', type=str, nargs='*', help='Specific files to inspect')
-    parser.add_argument('--cache-dir', type=str, default=None, help='Cache directory for downloaded files')
-    parser.add_argument('--retry-count', type=int, default=3, help='Number of retry attempts for downloads')
-    parser.add_argument('--print-contents', action='store_true', help='Print contents of each file')
-    parser.add_argument('--summarize', action='store_true', help='Log Mistral one-shot summary.')
-    parser.add_argument('--rank', action='store_true', help='Ten responses will be generated and ranked.')
-    parser.add_argument('--num-procs', type=int, default=1, help='Number of processes to use for parallel processing')
-    parser.add_argument('--record-index', type=int, default=None, help='Index of the record to process in each file')
-    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
-    args = parser.parse_args()
-    if args.num_procs < 1:
-        print("Error: --num-procs must be at least 1", file=sys.stderr)
-        sys.exit(1)
-    return args
-
-
-def process(args) -> None:
-    files_to_process: List[Tuple[str, str]] = []
-    data_agent = HuggingFaceDatasetService(logger)
-    dataset_processor = DatasetProcessor(logger)
-    if args.local_snapshot_dir and os.path.isdir(args.local_snapshot_dir):
-        try:
-            refs_path = os.path.join(args.local_snapshot_dir, 'refs', 'main')
-            if not os.path.isfile(refs_path):
-                raise FileNotFoundError(f"'refs/main' not found in {args.local_snapshot_dir}")
-            with open(refs_path, 'r') as f:
-                commit_hash = f.read().strip()
-
-            snapshot_dir = os.path.join(args.local_snapshot_dir, 'snapshots', commit_hash)
-            if not os.path.isdir(snapshot_dir):
-                raise FileNotFoundError(f"Snapshot directory {snapshot_dir} does not exist")
-
-            for root, dirs, files in os.walk(snapshot_dir):
-                for file in files:
-                    if file.endswith('.jsonl.zst'):
-                        full_path = os.path.join(root, file)
-                        relative_path = os.path.relpath(full_path, snapshot_dir)
-                        files_to_process.append((relative_path, full_path))
-
-            if not files_to_process:
-                raise FileNotFoundError(f"No .jsonl.zst files found in {snapshot_dir} or its subdirectories")
-
-            files_to_process.sort(key=lambda x: data_agent.get_sort_key(x[0]))
-            logger.info(f"Found {len(files_to_process)} .jsonl.zst files in the local snapshot.")
-
-            if args.files:
-                specified_files = set(args.files)
-                files_to_process = [f for f in files_to_process if f[0] in specified_files]
-                if len(files_to_process) < len(specified_files):
-                    logging.warning("Some specified files were not found in the local snapshot.")
-        except Exception as e:
-            logger.error(f"Error accessing local snapshot directory: {e}")
-            logger.info("Falling back to downloading files.")
-            files_to_process = []
-
-    if not files_to_process:
-        logger.info("No local files available. Proceeding to download from the repository.")
-        api = HfApi()
-        repo_files = api.list_repo_files(repo_id=args.repo_id, repo_type='dataset')
-        jsonl_files = [f for f in repo_files if f.endswith('.jsonl.zst')]
-        if args.files:
-            files_to_process_remote = [f for f in args.files if f in jsonl_files]
-            if len(files_to_process_remote) < len(args.files):
-                logging.warning("Some specified files were not found in the dataset repository.")
-        else:
-            files_to_process_remote = jsonl_files
-
-        files_to_process_remote.sort(key=lambda x: data_agent.get_sort_key(x))
-        for file_path in files_to_process_remote:
-            try:
-                local_path = data_agent.download(args.repo_id, file_path, args.cache_dir, args.retry_count)
-                files_to_process.append((file_path, local_path))
-            except Exception as e:
-                logger.error(f"Failed to download {file_path}: {e}")
-
-    total_files = len(files_to_process)
-    if total_files == 0:
-        logger.error("No files to process. Check your local snapshot directory or repository settings.")
-        return
-
-    file_chunks = data_agent.split_files(files_to_process, args.num_procs)
-    logger.info(f"Distributing {total_files} files across {args.num_procs} processes")
-
-    if args.num_procs == 1:
-        global worker_logger
-        worker_logger = logger
-        worker_process(files_to_process, args.print_contents, args.summarize, args.rank, args.record_index)
-    else:
-        with Pool(processes=args.num_procs, initializer=init_worker, initargs=(args.debug,)) as pool:
-            pool.starmap(worker_process,
-                         [(chunk, args.print_contents, args.summarize, args.rank, args.record_index)
-                          for chunk in file_chunks])
-
-    logger.info('Inspection completed')
-
-
 class DatasetProcessor:
     def __init__(self, parent_logger, max_shots):
         self.logger = parent_logger
+        self.repo_id = None
+        self.local_snapshot_dir = None
+        self.cache_dir = None
+        self.retry_count = 3
+        self.print_contents = False
+        self.summarize = False
+        self.rank = False
+        self.debug = False
+        self.files = []
+        self.num_procs = 1
         self.max_shots = max_shots
 
     @retry(
@@ -290,7 +198,10 @@ class DatasetProcessor:
         relations = self.stanford_relations(mistral_response)
         return mistral_response, relations
 
-    def process_record(self, record: str, print_contents: bool, summarize: bool, rank: bool,
+    def process_record(self, record: str,
+                       print_contents: bool,
+                       summarize: bool,
+                       rank: bool,
                        record_index: Optional[int] = None) -> None:
         try:
             record_data = json.loads(record)
@@ -310,3 +221,77 @@ class DatasetProcessor:
                 self.logger.error(f"Error parsing record at index {record_index}: {e}")
             else:
                 self.logger.error(f"Error parsing record: {e}")
+
+    def process(self, init_worker, worker_process) -> None:
+        files_to_process: List[Tuple[str, str]] = []
+        data_agent = HuggingFaceDatasetService(logger)
+        if self.local_snapshot_dir and os.path.isdir(self.local_snapshot_dir):
+            try:
+                refs_path = os.path.join(self.local_snapshot_dir, 'refs', 'main')
+                if not os.path.isfile(refs_path):
+                    raise FileNotFoundError(f"'refs/main' not found in {self.local_snapshot_dir}")
+                with open(refs_path, 'r') as f:
+                    commit_hash = f.read().strip()
+
+                snapshot_dir = os.path.join(self.local_snapshot_dir, 'snapshots', commit_hash)
+                if not os.path.isdir(snapshot_dir):
+                    raise FileNotFoundError(f"Snapshot directory {snapshot_dir} does not exist")
+
+                for root, dirs, files in os.walk(snapshot_dir):
+                    for file in files:
+                        if file.endswith('.jsonl.zst'):
+                            full_path = os.path.join(root, file)
+                            relative_path = os.path.relpath(full_path, snapshot_dir)
+                            files_to_process.append((relative_path, full_path))
+
+                if not files_to_process:
+                    raise FileNotFoundError(f"No .jsonl.zst files found in {snapshot_dir} or its subdirectories")
+
+                files_to_process.sort(key=lambda x: data_agent.get_sort_key(x[0]))
+                logger.info(f"Found {len(files_to_process)} .jsonl.zst files in the local snapshot.")
+
+                if self.files:
+                    specified_files = set(self.files)
+                    files_to_process = [f for f in files_to_process if f[0] in specified_files]
+                    if len(files_to_process) < len(specified_files):
+                        logging.warning("Some specified files were not found in the local snapshot.")
+            except Exception as e:
+                logger.error(f"Error accessing local snapshot directory: {e}")
+                logger.info("Falling back to downloading files.")
+                files_to_process = []
+
+        if not files_to_process:
+            logger.info("No local files available. Proceeding to download from the repository.")
+            api = HfApi()
+            repo_files = api.list_repo_files(repo_id=self.repo_id, repo_type='dataset')
+            jsonl_files = [f for f in repo_files if f.endswith('.jsonl.zst')]
+            if self.files:
+                files_to_process_remote = [f for f in self.files if f in jsonl_files]
+                if len(files_to_process_remote) < len(self.files):
+                    logging.warning("Some specified files were not found in the dataset repository.")
+            else:
+                files_to_process_remote = jsonl_files
+
+            files_to_process_remote.sort(key=lambda x: data_agent.get_sort_key(x))
+            for file_path in files_to_process_remote:
+                try:
+                    local_path = data_agent.download(self.repo_id, file_path, self.cache_dir, self.retry_count)
+                    files_to_process.append((file_path, local_path))
+                except Exception as e:
+                    logger.error(f"Failed to download {file_path}: {e}")
+
+        total_files = len(files_to_process)
+        if total_files == 0:
+            logger.error("No files to process. Check your local snapshot directory or repository settings.")
+            return
+
+        file_chunks = data_agent.split_files(files_to_process, self.num_procs)
+        self.logger.info(f"Distributing {total_files} files across {self.num_procs} processes")
+
+        if self.num_procs == 1:
+            worker_process(files_to_process, self.print_contents, self.summarize, self.rank, self.record_index)
+        else:
+            chonks = [(chunk, self.print_contents, self.summarize, self.rank, self.record_index) for chunk in file_chunks]
+            with Pool(processes=self.num_procs, initializer=init_worker, initargs=(self.debug,)) as pool:
+                pool.starmap(worker_process, chonks)
+        logger.info('Inspection completed')
