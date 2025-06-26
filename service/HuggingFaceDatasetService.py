@@ -1,11 +1,8 @@
 import logging
 import re
-from pstats import SortKey
-
 import zstandard as zstd
 from datetime import time
 from typing import List, Optional, Union, Tuple
-
 from huggingface_hub import hf_hub_download
 
 
@@ -50,13 +47,11 @@ class HuggingFaceDatasetService:
 
     @staticmethod
     def split_files(files: List[Tuple[str, str]], num_procs: int) -> List[List[Tuple[str, str]]]:
-        """Split files into chunks for each process."""
         chunk_size = max(1, len(files) // num_procs)
         return [files[i:i + chunk_size] for i in range(0, len(files), chunk_size)]
 
     @staticmethod
     def get_sort_key(local_path) -> Union[tuple[int, int, int], tuple[float, float, float]]:
-        """Extract sorting keys from the file path for sequential ordering."""
         match = re.match(r'global-shard_(\d+)_of_\d+/local-shard_(\d+)_of_\d+/shard_(\d+)_processed\.jsonl\.zst',
                          local_path)
         if match:

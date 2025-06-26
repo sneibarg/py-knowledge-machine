@@ -9,8 +9,8 @@ from multiprocessing import Pool
 from typing import List, Tuple, Optional
 from huggingface_hub import HfApi
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from HuggingFaceDatasetService import HuggingFaceDatasetService
-from LoggingService import LoggingService
+from service.HuggingFaceDatasetService import HuggingFaceDatasetService
+from service.LoggingService import LoggingService
 
 nlp_api_url = "http://malboji:8069/nlp/relations"
 mistral_api_url = "http://dragon:11435/api/generate"

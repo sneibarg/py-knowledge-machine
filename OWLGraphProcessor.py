@@ -5,7 +5,7 @@ import rdflib
 from collections import defaultdict
 from functools import partial
 from rdflib import Literal, URIRef, RDFS, RDF, OWL
-from KMSyntaxGenerator import STANDARD_PREDICATES
+from service.KMSyntaxGenerator import STANDARD_PREDICATES
 
 BASES = []
 assertions = []

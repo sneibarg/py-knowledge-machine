@@ -2,37 +2,9 @@ import sys
 import rdflib
 import json
 import re
-from rdflib import Namespace
 
-CYC = Namespace("http://sw.opencyc.org/concept/")
-CYCANNOT = Namespace("http://sw.cyc.com/CycAnnotations_v1#")
-cyc_annot_label = rdflib.URIRef("http://sw.cyc.com/CycAnnotations_v1#label")
-
-TYPE_PREDICATES = [
-    rdflib.RDF.type,
-    rdflib.URIRef("http://sw.opencyc.org/2008/06/10/concept/Mx4rBVVEokNxEdaAAACgydogAg")
-]
-STANDARD_PREDICATES = {
-    rdflib.RDF.type: "instance-of",
-    rdflib.RDFS.subClassOf: "superclasses",
-    rdflib.RDFS.label: "prettyString",
-    rdflib.OWL.sameAs: "same-as",
-    rdflib.OWL.disjointWith: "mustnt-be-a",
-    rdflib.RDFS.comment: "comment",
-    rdflib.RDFS.subPropertyOf: "subPropertyOf",
-    "Mx4rvViAzpwpEbGdrcN5Y29ycA": "datatype",
-    "Mx4rBVVEokNxEdaAAACgydogAg": "Quoted Isa",
-    "Mx4rwLSVCpwpEbGdrcN5Y29ycA": "prettyString",
-    "Mx4r8POVIYRHEdmd8gACs6hbCw": "prettyString-Canonical"
-}
-BUILT_IN_FRAMES = {
-    "instance-of", "superclasses", "label", "Slot", "Class", "Thing", "has",
-    "with", "a", "in", "where", "then", "else", "if", "forall", "oneof", "a-prototype"
-}
-
-
-def rdf_to_krl_name(uri):
-    return str(uri).split('/')[-1]
+from service.KnowledgeMachineService import rdf_to_krl_name, STANDARD_PREDICATES, BUILT_IN_FRAMES
+from service.OpenCycService import cyc_annot_label, TYPE_PREDICATES
 
 
 class KMSyntaxGenerator:

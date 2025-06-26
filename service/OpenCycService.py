@@ -1,14 +1,22 @@
 import os
 import re
+import rdflib
+from rdflib import URIRef, Namespace
 
-from rdflib import URIRef
-
+TYPE_PREDICATES = [
+    rdflib.RDF.type,
+    rdflib.URIRef("http://sw.opencyc.org/2008/06/10/concept/Mx4rBVVEokNxEdaAAACgydogAg")
+]
 CYC_ANNOT_LABEL = URIRef("http://sw.opencyc.org/2006/07/15/cycAnnot#label")
 CYC_BASES = [
     "http://sw.opencyc.org/2012/05/10/concept/",
     "http://sw.opencyc.org/concept/",
     "http://sw.cyc.com/concept/",
 ]
+
+CYC = Namespace("http://sw.opencyc.org/concept/")
+CYCANNOT = Namespace("http://sw.cyc.com/CycAnnotations_v1#")
+cyc_annot_label = rdflib.URIRef("http://sw.cyc.com/CycAnnotations_v1#label")
 
 
 def is_cyc_id(val):

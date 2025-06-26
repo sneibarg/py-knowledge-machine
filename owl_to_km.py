@@ -11,11 +11,11 @@ import rdflib
 from typing import Tuple, Optional, List
 from multiprocessing import Pool, Manager, current_process
 from DatasetProcessor import DatasetProcessor
-from HuggingFaceDatasetService import HuggingFaceDatasetService
-from KMSyntaxGenerator import KMSyntaxGenerator
-from LoggingService import LoggingService
+from service.HuggingFaceDatasetService import HuggingFaceDatasetService
+from service.KMSyntaxGenerator import KMSyntaxGenerator
+from service.LoggingService import LoggingService
 from OWLGraphProcessor import OWLGraphProcessor
-from OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, is_cyc_id, OpenCycService
+from service.OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, is_cyc_id, OpenCycService
 
 BASE_DIR = os.getcwd()
 LOG_DIR = os.path.join(BASE_DIR, "logs")

@@ -1,6 +1,30 @@
 import json
 import logging
+import rdflib
 import requests
+
+
+STANDARD_PREDICATES = {
+    rdflib.RDF.type: "instance-of",
+    rdflib.RDFS.subClassOf: "superclasses",
+    rdflib.RDFS.label: "prettyString",
+    rdflib.OWL.sameAs: "same-as",
+    rdflib.OWL.disjointWith: "mustnt-be-a",
+    rdflib.RDFS.comment: "comment",
+    rdflib.RDFS.subPropertyOf: "subPropertyOf",
+    "Mx4rvViAzpwpEbGdrcN5Y29ycA": "datatype",
+    "Mx4rBVVEokNxEdaAAACgydogAg": "Quoted Isa",
+    "Mx4rwLSVCpwpEbGdrcN5Y29ycA": "prettyString",
+    "Mx4r8POVIYRHEdmd8gACs6hbCw": "prettyString-Canonical"
+}
+BUILT_IN_FRAMES = {
+    "instance-of", "superclasses", "label", "Slot", "Class", "Thing", "has",
+    "with", "a", "in", "where", "then", "else", "if", "forall", "oneof", "a-prototype"
+}
+
+
+def rdf_to_krl_name(uri):
+    return str(uri).split('/')[-1]
 
 
 class KMService:
