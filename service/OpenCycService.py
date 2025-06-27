@@ -17,6 +17,10 @@ CYC_BASES = [
 CYC = Namespace("http://sw.opencyc.org/concept/")
 CYCANNOT = Namespace("http://sw.cyc.com/CycAnnotations_v1#")
 cyc_annot_label = rdflib.URIRef("http://sw.cyc.com/CycAnnotations_v1#label")
+BASE_DIR = os.getcwd()
+OWL_FILE = os.path.join(BASE_DIR, "runtime/opencyc-owl/opencyc-2012-05-10.owl")
+FIXED_OWL_FILE = os.path.join(BASE_DIR, "runtime/opencyc-owl/opencyc-2012-05-10_fixed.owl")
+TINY_OWL_FILE = os.path.join(BASE_DIR, "runtime/opencyc-owl/opencyc-owl-tiny.owl")
 
 
 def is_cyc_id(val):

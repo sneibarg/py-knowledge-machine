@@ -10,31 +10,25 @@ import rdflib
 
 from typing import Tuple, Optional, List
 from multiprocessing import Pool, Manager, current_process
-from DatasetProcessor import DatasetProcessor
+from processor.dataset.DatasetProcessor import DatasetProcessor
 from service.HuggingFaceDatasetService import HuggingFaceDatasetService
 from service.KMSyntaxGenerator import KMSyntaxGenerator
 from service.LoggingService import LoggingService
-from OWLGraphProcessor import OWLGraphProcessor
-from service.OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, is_cyc_id, OpenCycService
+from processor.owl.OWLGraphProcessor import OWLGraphProcessor
+from service.OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, is_cyc_id, OpenCycService, FIXED_OWL_FILE, TINY_OWL_FILE
 
 BASE_DIR = os.getcwd()
-LOG_DIR = os.path.join(BASE_DIR, "logs")
-OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-2012-05-10.owl")
-FIXED_OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-2012-05-10_fixed.owl")
-TINY_OWL_FILE = os.path.join(BASE_DIR, "opencyc-owl/opencyc-owl-tiny.owl")
-GO_OWL_FILE = os.path.join(BASE_DIR, 'opencyc-owl/go-basic.owl')
-
-adapter = None
-session = None
+LOG_DIR = os.path.join(BASE_DIR, "runtime/logs")
 logging_service = LoggingService(LOG_DIR, "OWL-to-KM")
 logger = logging_service.setup_logging(False)
+open_cyc_service = OpenCycService(logger)
+adapter = None
+session = None
 worker_logger = None
 manager = None
 pool = None
 successfully_sent = None
 failed_assertions = None
-
-open_cyc_service = OpenCycService(logger)
 
 os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -208,12 +202,25 @@ def is_ready(assertion, generator):
 
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description="Translate OpenCyc OWL to KM KRL.")
-    parser.add_argument("--debug", action="store_true", help="Enable debug output.")
+    parser = argparse.ArgumentParser(description="Inspect Hugging Face dataset files")
+    parser.add_argument('repo_id', type=str, help='Dataset repository ID (e.g., mlfoundations/dclm-baseline-1.0)')
+    parser.add_argument('--local-snapshot-dir', type=str, help='Path to local snapshot directory')
+    parser.add_argument('--files', type=str, nargs='*', help='Specific files to inspect')
+    parser.add_argument('--cache-dir', type=str, default=None, help='Cache directory for downloaded files')
+    parser.add_argument('--retry-count', type=int, default=3, help='Number of retry attempts for downloads')
+    parser.add_argument('--print-contents', action='store_true', help='Print contents of each file')
+    parser.add_argument('--summarize', action='store_true', help='Log Mistral one-shot summary.')
+    parser.add_argument('--rank', action='store_true', help='Ten responses will be generated and ranked.')
+    parser.add_argument('--num-procs', type=int, default=1, help='Number of processes to use for parallel processing')
+    parser.add_argument('--record-index', type=int, default=None, help='Index of the record to process in each file')
     parser.add_argument("--dry-run", action="store_true", help="Skip sending requests to KM server.")
-    parser.add_argument("--num-processes", type=int, help="Number of processes to use.")
     parser.add_argument("--translate-only", action="store_true", help="Translate and log only.")
-    return parser.parse_args()
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+    args = parser.parse_args()
+    if args.num_procs < 1:
+        print("Error: --num-procs must be at least 1", file=sys.stderr)
+        sys.exit(1)
+    return args
 
 
 def main():

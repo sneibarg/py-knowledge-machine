@@ -29,7 +29,7 @@ adapter = requests.adapters.HTTPAdapter(
 )
 session.mount('http://', adapter)
 session.mount('https://', adapter)
-logging_service = LoggingService('DataProcessor', os.path.join(os.getcwd(), "logs"))
+logging_service = LoggingService('DataProcessor', os.path.join(os.getcwd(), "../../runtime/logs"))
 logger = logging_service.setup_logging(False)
 worker_logger = None
 
