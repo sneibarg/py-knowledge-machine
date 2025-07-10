@@ -8,7 +8,7 @@ import pkg_resources
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Union
-from datasets import load_dataset, Dataset, IterableDataset, get_dataset_config_names, get_dataset_split_names
+from datasets import load_dataset, Dataset, DownloadConfig, IterableDataset, get_dataset_config_names, get_dataset_split_names
 from huggingface_hub import list_datasets, HfApi
 from requests.adapters import HTTPAdapter
 from urllib3 import Retry
@@ -34,8 +34,7 @@ def inspect_dataset_metadata(dataset_id: str, hf_token: Optional[str]) -> None:
     try:
         api = HfApi(token=hf_token)
         dataset_info = api.dataset_info(dataset_id)
-        return dataset_info
-        # logging.info(f"Metadata for {dataset_id}: {dataset_info.__dict__}")
+        logging.info(f"Metadata for {dataset_id}: {dataset_info.__dict__}")
     except Exception as e:
         logging.warning(f"Failed to inspect metadata for {dataset_id}: {e}")
 
@@ -78,7 +77,7 @@ def create_resilient_session(max_retries: int, timeout: int) -> requests.Session
 def get_dataset_info(dataset_id: str, cache_dir: str, no_splits: bool, hf_token: Optional[str]) -> Dict[str, List[str]]:
     """Get subsets and splits for a dataset, with fallback on failure."""
     try:
-        subsets = get_dataset_config_names(dataset_id, download_config={'cache_dir': cache_dir}, token=hf_token)
+        subsets = get_dataset_config_names(dataset_id, download_config=DownloadConfig(cache_dir=cache_dir), token=hf_token)
         if not subsets:
             subsets = [None]
         logging.info(f"Found subsets for {dataset_id}: {subsets}")
@@ -88,7 +87,8 @@ def get_dataset_info(dataset_id: str, cache_dir: str, no_splits: bool, hf_token:
     subset_splits = {}
     for subset in subsets:
         try:
-            splits = get_dataset_split_names(dataset_id, config_name=subset, download_config={'cache_dir': cache_dir},
+            splits = get_dataset_split_names(dataset_id, config_name=subset,
+                                             download_config=DownloadConfig(cache_dir=cache_dir),
                                              token=hf_token)
             subset_splits[subset or "default"] = ["full"] if no_splits else splits
             logging.info(f"Found splits for {dataset_id}/{subset or 'default'}: {subset_splits[subset or 'default']}")
@@ -111,7 +111,7 @@ def get_namespace_datasets(namespace: str, hf_token: Optional[str]) -> List[str]
 
 
 @dataclass
-class DownloadConfig:
+class DatasetConfig:
     """Configuration for downloading a single dataset."""
     dataset_name: str
     subset: Optional[str]
@@ -130,7 +130,7 @@ class DatasetDownloader:
         self.downloaded = []
         self.failed = []
 
-    def get_dataset_configurations(self) -> List[DownloadConfig]:
+    def get_dataset_configurations(self) -> List[DatasetConfig]:
         """Generate a list of dataset configurations to download."""
         configurations = []
         base_output_dir = self.config["output_dir"]
@@ -145,11 +145,11 @@ class DatasetDownloader:
                 subset_splits = get_dataset_info(dataset_id, self.cache_dir, self.no_splits, self.hf_token)
                 if not subset_splits:
                     split = "full" if self.no_splits else "train"
-                    configurations.append(DownloadConfig(dataset_id, None, split, output_dir))
+                    configurations.append(DatasetConfig(dataset_id, None, split, output_dir))
                 else:
                     for subset, splits in subset_splits.items():
                         for split in splits:
-                            configurations.append(DownloadConfig(dataset_id, subset, split, output_dir))
+                            configurations.append(DatasetConfig(dataset_id, subset, split, output_dir))
         else:
             dataset_id = self.config["dataset_name"]
             inspect_dataset_metadata(dataset_id, self.hf_token)
@@ -157,19 +157,19 @@ class DatasetDownloader:
             subset = self.config["subset"]
             split = self.config["split"]
             if subset or (split and not self.no_splits):
-                configurations.append(DownloadConfig(dataset_id, subset, split, output_dir))
+                configurations.append(DatasetConfig(dataset_id, subset, split, output_dir))
             else:
                 subset_splits = get_dataset_info(dataset_id, self.cache_dir, self.no_splits, self.hf_token)
                 if not subset_splits:
                     split = "full" if self.no_splits else "train"
-                    configurations.append(DownloadConfig(dataset_id, None, split, output_dir))
+                    configurations.append(DatasetConfig(dataset_id, None, split, output_dir))
                 else:
                     for subset, splits in subset_splits.items():
                         for split in splits:
-                            configurations.append(DownloadConfig(dataset_id, subset, split, output_dir))
+                            configurations.append(DatasetConfig(dataset_id, subset, split, output_dir))
         return configurations
 
-    def download_single_dataset(self, config: DownloadConfig) -> Optional[Union[Dataset, IterableDataset]]:
+    def download_single_dataset(self, config: DatasetConfig) -> Optional[Union[Dataset, IterableDataset]]:
         """Download a single dataset configuration."""
         split_display = "full" if config.split == "full" else config.split or "all"
         logging.info(f"Downloading {config.dataset_name}/{config.subset or 'default'}/{split_display}")
