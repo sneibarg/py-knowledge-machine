@@ -30,7 +30,6 @@ DEFAULT_CONFIG = {
 
 
 def inspect_dataset_metadata(dataset_id: str, hf_token: Optional[str]) -> None:
-    """Inspect dataset metadata to diagnose issues."""
     try:
         api = HfApi(token=hf_token)
         dataset_info = api.dataset_info(dataset_id)
@@ -40,7 +39,6 @@ def inspect_dataset_metadata(dataset_id: str, hf_token: Optional[str]) -> None:
 
 
 def check_default_cache(clean_default_cache: bool) -> None:
-    """Check and optionally clean the default HuggingFace cache."""
     default_cache = os.path.expanduser("~/.cache/huggingface")
     if os.path.exists(default_cache):
         if clean_default_cache:
@@ -54,7 +52,6 @@ def check_default_cache(clean_default_cache: bool) -> None:
 
 
 def check_library_versions() -> None:
-    """Log versions of critical libraries."""
     for pkg in ["datasets", "huggingface_hub"]:
         try:
             version = pkg_resources.get_distribution(pkg).version
@@ -65,7 +62,6 @@ def check_library_versions() -> None:
 
 
 def create_resilient_session(max_retries: int, timeout: int) -> requests.Session:
-    """Create an HTTP session with retry logic."""
     session = requests.Session()
     retries = Retry(total=max_retries, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     adapter = HTTPAdapter(max_retries=retries)
@@ -75,7 +71,6 @@ def create_resilient_session(max_retries: int, timeout: int) -> requests.Session
 
 
 def get_dataset_info(dataset_id: str, cache_dir: str, no_splits: bool, hf_token: Optional[str]) -> Dict[str, List[str]]:
-    """Get subsets and splits for a dataset, with fallback on failure."""
     try:
         subsets = get_dataset_config_names(dataset_id, download_config=DownloadConfig(cache_dir=cache_dir), token=hf_token)
         if not subsets:
@@ -99,7 +94,6 @@ def get_dataset_info(dataset_id: str, cache_dir: str, no_splits: bool, hf_token:
 
 
 def get_namespace_datasets(namespace: str, hf_token: Optional[str]) -> List[str]:
-    """Retrieve all dataset IDs under a namespace."""
     try:
         datasets = list_datasets(author=namespace, token=hf_token)
         dataset_ids = [ds.id for ds in datasets]
@@ -120,8 +114,6 @@ class DatasetConfig:
 
 
 class DatasetDownloader:
-    """Class to manage dataset downloading from HuggingFace."""
-
     def __init__(self, config: Dict):
         self.config = config
         self.hf_token = config["hf_token"]
@@ -131,7 +123,6 @@ class DatasetDownloader:
         self.failed = []
 
     def get_dataset_configurations(self) -> List[DatasetConfig]:
-        """Generate a list of dataset configurations to download."""
         configurations = []
         base_output_dir = self.config["output_dir"]
         if self.config["namespace_mode"]:
@@ -169,8 +160,7 @@ class DatasetDownloader:
                             configurations.append(DatasetConfig(dataset_id, subset, split, output_dir))
         return configurations
 
-    def download_single_dataset(self, config: DatasetConfig) -> Optional[Union[Dataset, IterableDataset]]:
-        """Download a single dataset configuration."""
+    def download_dataset(self, config: DatasetConfig) -> Optional[Union[Dataset, IterableDataset]]:
         split_display = "full" if config.split == "full" else config.split or "all"
         logging.info(f"Downloading {config.dataset_name}/{config.subset or 'default'}/{split_display}")
         try:
@@ -210,10 +200,9 @@ class DatasetDownloader:
             return None
 
     def download(self) -> List[Union[Dataset, IterableDataset]]:
-        """Download all configured datasets."""
         configurations = self.get_dataset_configurations()
         for config in configurations:
-            dataset = self.download_single_dataset(config)
+            dataset = self.download_dataset(config)
             if dataset:
                 self.downloaded.append(dataset)
                 logging.info(
