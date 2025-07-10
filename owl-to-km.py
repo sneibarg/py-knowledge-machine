@@ -259,10 +259,8 @@ def main():
     logger.info(f"Translated {str(len(translated_assertions))} in {str(int(time.time() - processing_start))} seconds.")
     if args.translate_only:
         for assertion in translated_assertions:
-            logger.info(
-                "-------------------------------------------------------------------------------------------------")
-            logger.info(
-                "-------------------------------------------------------------------------------------------------")
+            logger.info("-------------------------------------------------------------------------------------------------")
+            logger.info("-------------------------------------------------------------------------------------------------")
             logger.info(json.dumps(assertion, indent=2))
         sys.exit(0)
 
