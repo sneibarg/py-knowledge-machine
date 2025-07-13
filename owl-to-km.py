@@ -39,7 +39,7 @@ def parse_arguments():
     parser.add_argument("--translate-only", action="store_true", help="Translate and log only.")
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     args = parser.parse_args()
-    if len(sys.argv) == 1:
+    if str(sys.argv[0]) is "-h" or str(sys.argv[0]) is "--help":
         parser.print_help()
         sys.exit(0)
     return args
