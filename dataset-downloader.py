@@ -18,7 +18,7 @@ def parse_args():
     parser.add_argument('--skip-datasets', nargs='*', default=[], help='Datasets to skip in namespace mode')
 
     args = parser.parse_args()
-    if str(sys.argv[0]) is "-h" or str(sys.argv[0]) is "--help":
+    if str(sys.argv[0]) == "-h" or str(sys.argv[0]) == "--help":
         parser.print_help()
         sys.exit(0)
 
