@@ -16,12 +16,12 @@ failed_assertions = {}
 
 class OWLGraphProcessor:
     def __init__(self, parent_logger, owl_file, pool, processing_function, custom_matching_function, args):
-        self.graph = self.load_ontology(parent_logger, owl_file, processing_function)
         self.pool = pool
         self.processing_function = processing_function
         self.custom_matching_function = custom_matching_function
         self.args = args
         self.successfully_sent = successfully_sent
+        self.graph = self.load_ontology(parent_logger, owl_file)
         self.logger = parent_logger.getChild('OWL-Graph-Processor')
 
     def run(self) -> int:
@@ -90,14 +90,14 @@ class OWLGraphProcessor:
             self.logger.error("SPARQL query for individuals failed: %s", str(e))
             raise
 
-    def load_ontology(self, logger, ontology, preprocessor):
+    def load_ontology(self, logger, ontology):
         start_time = time.time()
         onto_logger = logger.getChild('OntologyLoader')
 
-        if not os.path.exists(ontology) and preprocessor is not None:
+        if not os.path.exists(ontology) and self.processing_function is not None:
             onto_logger.info("Preprocessed OWL file not found. Triggering preprocessing.")
             try:
-                preprocessor(logger)
+                self.processing_function(logger)
             except Exception as e:
                 raise RuntimeError(f"Preprocessing failed: {e}") from e
 

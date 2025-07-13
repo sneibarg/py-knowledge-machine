@@ -97,8 +97,7 @@ def main():
 
     processing_start = time.time()
     logger.info("Starting KM translation process.")
-    owl_graph_processor = OWLGraphProcessor(logger, TINY_OWL_FILE, pool, open_cyc_service.preprocess_cyc_file,
-                                            is_cyc_id, args)
+    owl_graph_processor = OWLGraphProcessor(logger, TINY_OWL_FILE, pool, open_cyc_service.preprocess_cyc_file, is_cyc_id, args)
     owl_graph_processor.set_annotation_label(CYC_ANNOT_LABEL)
     owl_graph_processor.set_bases(CYC_BASES)
     object_map = extract_labels_and_ids(owl_graph_processor.graph, logger)
