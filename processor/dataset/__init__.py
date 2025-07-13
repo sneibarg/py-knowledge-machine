@@ -8,8 +8,9 @@ import pkg_resources
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Union
-from datasets import load_dataset, Dataset, DownloadConfig, IterableDataset, get_dataset_config_names, get_dataset_split_names
-from huggingface_hub import list_datasets, HfApi
+from datasets import load_dataset, Dataset, DownloadConfig, IterableDataset, get_dataset_config_names, \
+    get_dataset_split_names
+from huggingface_hub import list_datasets, HfApi, DatasetInfo
 from requests.adapters import HTTPAdapter
 from urllib3 import Retry
 
@@ -29,13 +30,19 @@ DEFAULT_CONFIG = {
 }
 
 
-def inspect_dataset_metadata(dataset_id: str, hf_token: Optional[str]) -> None:
+def check_disk_space(directory: str) -> bool:
+    """Check if the directory has sufficient disk space."""
     try:
-        api = HfApi(token=hf_token)
-        dataset_info = api.dataset_info(dataset_id)
-        logging.info(f"Metadata for {dataset_id}: {dataset_info.__dict__}")
+        total, used, free = shutil.disk_usage(directory)
+        free_gb = free / (1024 ** 3)
+        logging.info(f"Free disk space in {directory}: {free_gb:.2f} GB")
+        if free_gb < 1:
+            logging.warning(f"Low disk space in {directory} (< 1 GB). Downloads may fail.")
+            return False
+        return True
     except Exception as e:
-        logging.warning(f"Failed to inspect metadata for {dataset_id}: {e}")
+        logging.error(f"Failed to check disk space for {directory}: {e}")
+        return False
 
 
 def check_default_cache(clean_default_cache: bool) -> None:
@@ -72,7 +79,9 @@ def create_resilient_session(max_retries: int, timeout: int) -> requests.Session
 
 def get_dataset_info(dataset_id: str, cache_dir: str, no_splits: bool, hf_token: Optional[str]) -> Dict[str, List[str]]:
     try:
-        subsets = get_dataset_config_names(dataset_id, download_config=DownloadConfig(cache_dir=cache_dir), token=hf_token)
+        subsets = get_dataset_config_names(dataset_id,
+                                           download_config=DownloadConfig(cache_dir=cache_dir),
+                                           token=hf_token)
         if not subsets:
             subsets = [None]
         logging.info(f"Found subsets for {dataset_id}: {subsets}")
@@ -82,7 +91,8 @@ def get_dataset_info(dataset_id: str, cache_dir: str, no_splits: bool, hf_token:
     subset_splits = {}
     for subset in subsets:
         try:
-            splits = get_dataset_split_names(dataset_id, config_name=subset,
+            splits = get_dataset_split_names(dataset_id,
+                                             config_name=subset,
                                              download_config=DownloadConfig(cache_dir=cache_dir),
                                              token=hf_token)
             subset_splits[subset or "default"] = ["full"] if no_splits else splits
@@ -116,23 +126,43 @@ class DatasetConfig:
 class DatasetDownloader:
     def __init__(self, config: Dict):
         self.config = config
+        self.api = HfApi()
         self.hf_token = config["hf_token"]
         self.cache_dir = config["cache_dir"]
         self.no_splits = config["no_splits"]
+        self.namespace = config["namespace"]
         self.downloaded = []
         self.failed = []
+
+    def get_metadata(self, dataset_id: str) -> DatasetInfo:
+        try:
+
+            dataset_info = self.api.dataset_info(dataset_id)
+            logging.info(f"Metadata for {dataset_id}: {dataset_info.__dict__}")
+            return dataset_info
+        except Exception as e:
+            logging.warning(f"Failed to inspect metadata for {dataset_id}: {e}")
 
     def get_dataset_configurations(self) -> List[DatasetConfig]:
         configurations = []
         base_output_dir = self.config["output_dir"]
+        skip_datasets = set(self.config["skip_datasets"])  # Convert to set for fast lookup
         if self.config["namespace_mode"]:
             dataset_ids = get_namespace_datasets(self.config["dataset_name"], self.hf_token)
             if not dataset_ids:
                 logging.error(f"No datasets found under namespace {self.config['dataset_name']}.")
                 return configurations
-            for dataset_id in dataset_ids:
-                inspect_dataset_metadata(dataset_id, self.hf_token)
+
+            filtered_ids = [ds_id for ds_id in dataset_ids if ds_id not in skip_datasets]
+            logging.info(
+                f"Filtered {len(dataset_ids) - len(filtered_ids)} datasets to skip. Processing {len(filtered_ids)}.")
+            for dataset_id in filtered_ids:
+                metadata = self.get_metadata(dataset_id)
+                download_size_gb = metadata['download_size'] / (1024 ** 3)
                 output_dir = os.path.join(base_output_dir, dataset_id.replace("/", "_"))
+                if download_size_gb > check_disk_space(output_dir):
+                    logging.warning(f"Dataset {dataset_id} exceeds available disk space.")
+                    continue
                 subset_splits = get_dataset_info(dataset_id, self.cache_dir, self.no_splits, self.hf_token)
                 if not subset_splits:
                     split = "full" if self.no_splits else "train"
@@ -143,8 +173,12 @@ class DatasetDownloader:
                             configurations.append(DatasetConfig(dataset_id, subset, split, output_dir))
         else:
             dataset_id = self.config["dataset_name"]
-            inspect_dataset_metadata(dataset_id, self.hf_token)
+            metadata = self.get_metadata(dataset_id)
+            download_size_gb = metadata['download_size'] / (1024 ** 3)
             output_dir = os.path.join(base_output_dir, dataset_id.replace("/", "_"))
+            if download_size_gb > check_disk_space(output_dir):
+                logging.warning(f"Dataset {dataset_id} exceeds available disk space.")
+                return configurations
             subset = self.config["subset"]
             split = self.config["split"]
             if subset or (split and not self.no_splits):

@@ -52,6 +52,36 @@ class OWLGraphProcessor:
 
         return len(self.successfully_sent)
 
+    def load_ontology(self, logger, ontology, preprocessor):
+        start_time = time.time()
+        onto_logger = logger.getChild('OntologyLoader')
+
+        if not os.path.exists(ontology) and preprocessor is not None:
+            onto_logger.info("Preprocessed OWL file not found. Triggering preprocessing.")
+            try:
+                preprocessor(logger)
+            except Exception as e:
+                raise RuntimeError(f"Preprocessing failed: {e}") from e
+
+        onto_logger.info("Loading ontology with rdflib.")
+        g = rdflib.Graph()
+        formats = ["xml", "turtle"]  # Fallback formats
+        for fmt in formats:
+            try:
+                with open(ontology, 'r', encoding='utf-8') as f:  # Use with for file
+                    g.parse(f, format=fmt)
+                onto_logger.info(
+                    f"Ontology loaded successfully with {len(g)} triples in {int(time.time() - start_time)} seconds.")
+                return g
+            except rdflib.exceptions.ParserError as pe:
+                onto_logger.warning(f"Failed to parse as {fmt}: {pe}. Trying next format.")
+            except FileNotFoundError as fe:
+                raise FileNotFoundError(f"OWL file missing after preprocessing: {fe}") from fe
+            except Exception as e:
+                raise RuntimeError(f"Unexpected error loading ontology: {e}") from e
+
+        raise ValueError(f"Failed to parse ontology {ontology} in all supported formats.")
+
     def print_classes(self, object_map):
         for subject in self.graph.subjects(RDF.type, OWL.Class):
             print(f"\nClass URI: {subject}")
@@ -163,29 +193,3 @@ class OWLGraphProcessor:
             return node.split('#')[-1] if '#' in node else node.split('/')[-1]
         return str(node)
 
-    @staticmethod
-    def load_ontology(logger, ontology, preprocessor):
-        """Load the ontology, preprocessing if necessary."""
-        start_time = time.time()
-        onto_logger = logger.getChild('OntologyLoader')
-        if not os.path.exists(ontology) and preprocessor is not None:
-            onto_logger.info("Preprocessed OWL file not found. Triggering preprocessing.")
-            preprocessor(logger)
-        else:
-            print(f"Using existing OWL file: {ontology}")
-            onto_logger.info("Using existing fixed OWL file: %s", ontology)
-
-        onto_logger.info("Loading ontology with rdflib.")
-        print("Loading ontology with rdflib.")
-        g = rdflib.Graph()
-        print("Done loading ontology.")
-        try:
-            print("Parsing OWL file.")
-            g.parse(ontology, format="xml")
-            print(f"Ontology loaded successfully with {len(g)} triples.")
-            onto_logger.info("Ontology loaded successfully with %d triples in %d.", len(g),
-                             int(time.time() - start_time))
-            return g
-        except Exception as e:
-            onto_logger.error("Failed to parse ontology: %s", str(e))
-            raise

@@ -9,6 +9,8 @@ from multiprocessing import Pool
 from typing import List, Tuple, Optional
 from huggingface_hub import HfApi
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
+from service import get_session
 from service.HuggingFaceDatasetService import HuggingFaceDatasetService
 from service.LoggingService import LoggingService
 
@@ -21,14 +23,6 @@ ontologist_prompt = ("I am your automated ontology editor, and I am reviewing da
                      "I will ignore formalities, not be verbose, and respond with only the facts. "
                      "The following text you have given me is: ")
 
-session = requests.Session()
-adapter = requests.adapters.HTTPAdapter(
-    pool_connections=10,
-    pool_maxsize=10,
-    max_retries=0
-)
-session.mount('http://', adapter)
-session.mount('https://', adapter)
 logging_service = LoggingService('DataProcessor', os.path.join(os.getcwd(), "../../runtime/logs"))
 logger = logging_service.setup_logging(False)
 worker_logger = None
@@ -37,6 +31,7 @@ worker_logger = None
 class DatasetProcessor:
     def __init__(self, parent_logger, max_shots):
         self.logger = parent_logger
+        self.api = HfApi()
         self.repo_id = None
         self.local_snapshot_dir = None
         self.cache_dir = None
@@ -45,6 +40,7 @@ class DatasetProcessor:
         self.summarize = False
         self.rank = False
         self.debug = False
+        self.session = get_session(max_retries=3)
         self.files = []
         self.num_procs = 1
         self.max_shots = max_shots
@@ -67,22 +63,17 @@ class DatasetProcessor:
             return {}
 
         try:
-            start_time = time.time()
-            response = session.post(
+            response = self.session.post(
                 nlp_api_url,
                 data=data.encode('utf-8', errors='replace'),
                 headers=headers,
                 timeout=(120, 360)
             )
             response.raise_for_status()
-            end_time = time.time()
-            duration = end_time - start_time
-            self.logger.info(f"REST call to {nlp_api_url} took {duration:.3f} seconds")
-            try:
-                return response.json()
-            except json.JSONDecodeError as e:
-                self.logger.error(f"Invalid JSON response from {nlp_api_url}: {e}")
-                return {}
+            return response.json()
+        except json.JSONDecodeError as jde:
+            self.logger.error(f"Invalid JSON from NLP API: {jde}")
+            raise ValueError("NLP API returned malformed JSON") from jde
         except requests.exceptions.Timeout as e:
             self.logger.error(f"Timeout error contacting {nlp_api_url}: {e}")
             raise
@@ -126,7 +117,7 @@ class DatasetProcessor:
 
         try:
             start_time = time.time()
-            response = session.post(
+            response = self.session.post(
                 mistral_api_url,
                 json=payload,
                 timeout=(120, 360)
@@ -203,6 +194,9 @@ class DatasetProcessor:
                        summarize: bool,
                        rank: bool,
                        record_index: Optional[int] = None) -> None:
+        if record_index is not None and record_index < 0:
+            raise ValueError("record_index must be non-negative")
+
         try:
             record_data = json.loads(record)
             text = record_data['text']
@@ -221,6 +215,27 @@ class DatasetProcessor:
                 self.logger.error(f"Error parsing record at index {record_index}: {e}")
             else:
                 self.logger.error(f"Error parsing record: {e}")
+
+    def process_zst(self, args) -> None:
+        local_path, print_contents, summarize, rank, data_agent, dataset_processor, record_index = args
+        dataset = data_agent.dump_zstd(local_path)
+
+        if not dataset:
+            raise ValueError(f"No records found in file: {local_path}")
+
+        if record_index is not None:
+            if not isinstance(record_index, int) or record_index < 0:
+                raise IndexError(f"Invalid record index: {record_index}. Must be a non-negative integer.")
+
+            if record_index >= len(dataset):
+                raise IndexError(f"Record index {record_index} exceeds dataset length {len(dataset)}")
+
+            logger.info(f"Processing record at index {record_index} in file: {local_path}")
+            self.process_record(dataset[record_index], print_contents, summarize, rank, record_index)
+        else:
+            logger.info(f"Processing all records in file: {local_path}")
+            for i, row in enumerate(dataset):
+                self.process_record(row, print_contents, summarize, rank, i)
 
     def process(self, init_worker, worker_process) -> None:
         files_to_process: List[Tuple[str, str]] = []
@@ -262,8 +277,7 @@ class DatasetProcessor:
 
         if not files_to_process:
             logger.info("No local files available. Proceeding to download from the repository.")
-            api = HfApi()
-            repo_files = api.list_repo_files(repo_id=self.repo_id, repo_type='dataset')
+            repo_files = self.api.list_repo_files(repo_id=self.repo_id, repo_type='dataset')
             jsonl_files = [f for f in repo_files if f.endswith('.jsonl.zst')]
             if self.files:
                 files_to_process_remote = [f for f in self.files if f in jsonl_files]
@@ -295,3 +309,4 @@ class DatasetProcessor:
             with Pool(processes=self.num_procs, initializer=init_worker, initargs=(self.debug,)) as pool:
                 pool.starmap(worker_process, chonks)
         logger.info('Inspection completed')
+

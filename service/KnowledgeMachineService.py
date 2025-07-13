@@ -2,7 +2,7 @@ import json
 import logging
 import rdflib
 import requests
-
+from tenacity import stop_after_attempt, retry_if_exception_type, wait_exponential, retry
 
 STANDARD_PREDICATES = {
     rdflib.RDF.type: "instance-of",
@@ -31,6 +31,13 @@ class KMService:
     def __init__(self, km_service):
         self.km_service = km_service
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((requests.exceptions.ConnectionError,
+                                       requests.exceptions.Timeout,
+                                       requests.exceptions.HTTPError))
+    )
     def send_to_km(self, expr, fail_mode="fail", dry_run=False):
         """Send a KM expression to the server."""
         logger = logging.getLogger('OWL-to-KM.rest_client')
