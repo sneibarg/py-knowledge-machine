@@ -16,7 +16,7 @@ failed_assertions = {}
 
 class OWLGraphProcessor:
     def __init__(self, parent_logger, owl_file, pool, processing_function, custom_matching_function, args):
-        self.graph = self.load_ontology(parent_logger, owl_file)
+        self.graph = self.load_ontology(parent_logger, owl_file, processing_function)
         self.pool = pool
         self.processing_function = processing_function
         self.custom_matching_function = custom_matching_function

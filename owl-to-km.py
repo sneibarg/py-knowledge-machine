@@ -105,7 +105,9 @@ def main():
 
     km_generator = KMSyntaxGenerator(owl_graph_processor.graph, object_map, logger)
     assertions = preprocess(owl_graph_processor, args.use_sparql_queries)
-    translated_assertions = []  # Translate here instead of separate function
+    if args.preprocess_only:
+        sys.exit(0)
+    translated_assertions = []
     for assertion in assertions:
         if assertion[0] == "class":
             expr = km_generator.class_to_km(assertion[1])
