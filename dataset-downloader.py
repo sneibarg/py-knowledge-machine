@@ -1,4 +1,6 @@
 import argparse
+import sys
+
 from processor.dataset import DatasetDownloader, DEFAULT_CONFIG
 
 
@@ -16,6 +18,9 @@ def parse_args():
     parser.add_argument('--skip-datasets', nargs='*', default=[], help='Datasets to skip in namespace mode')
 
     args = parser.parse_args()
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(0)
 
     config = DEFAULT_CONFIG.copy()
     config.update(vars(args))

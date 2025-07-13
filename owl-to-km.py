@@ -39,6 +39,9 @@ def parse_arguments():
     parser.add_argument("--translate-only", action="store_true", help="Translate and log only.")
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     args = parser.parse_args()
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(0)
     return args
 
 
@@ -59,6 +62,7 @@ def extract_labels_and_ids(graph, parent_logger):
 
 def main():
     args = parse_arguments()
+
     num_processes = 1
 
     if args.debug:
