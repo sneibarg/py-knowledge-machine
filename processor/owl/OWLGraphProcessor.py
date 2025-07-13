@@ -52,6 +52,44 @@ class OWLGraphProcessor:
 
         return len(self.successfully_sent)
 
+    def get_classes_via_sparql(self):
+        query = """
+        SELECT ?s WHERE {
+            ?s rdf:type owl:Class .
+        }
+        """
+        try:
+            return [row.s for row in self.graph.query(query)]
+        except Exception as e:
+            self.logger.error("SPARQL query for classes failed: %s", str(e))
+            raise
+
+    def get_properties_via_sparql(self):
+        query = """
+        SELECT ?s WHERE {
+            ?s rdf:type owl:ObjectProperty .
+        }
+        """
+        try:
+            return [row.s for row in self.graph.query(query)]
+        except Exception as e:
+            self.logger.error("SPARQL query for properties failed: %s", str(e))
+            raise
+
+    def get_individuals_via_sparql(self):
+        query = """
+        SELECT ?ind ?class WHERE {
+            ?ind rdf:type ?class .
+            ?class rdf:type owl:Class .
+            FILTER (?class != owl:Class)
+        }
+        """
+        try:
+            return [(row.ind, row['class']) for row in self.graph.query(query)]
+        except Exception as e:
+            self.logger.error("SPARQL query for individuals failed: %s", str(e))
+            raise
+
     def load_ontology(self, logger, ontology, preprocessor):
         start_time = time.time()
         onto_logger = logger.getChild('OntologyLoader')
