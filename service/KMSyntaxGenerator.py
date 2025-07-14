@@ -1,4 +1,6 @@
 import sys
+from typing import List
+
 import rdflib
 import json
 import re
@@ -16,7 +18,7 @@ class KMSyntaxGenerator:
         self.predicate_names = self.build_predicate_names()
         self.logger.info("Initialized with %d resources.", len(self.resource_names))
 
-    def build_resource_names(self):
+    def build_resource_names(self) -> dict:
         names = {}
         self.logger.info("Building resource names...")
         for s in self.graph.subjects():
@@ -31,7 +33,7 @@ class KMSyntaxGenerator:
         self.logger.info("Completed building %d resource names.", len(names))
         return names
 
-    def build_predicate_names(self):
+    def build_predicate_names(self) -> dict:
         names = STANDARD_PREDICATES.copy()
         used_names = set(names.values())
         self.logger.info("Building predicate names...")
@@ -53,13 +55,23 @@ class KMSyntaxGenerator:
         self.logger.info("Completed building %d predicate names.", len(names))
         return names
 
-    def get_resource_name(self, resource):
+    def get_resource_name(self, resource) -> str:
         return self.resource_names.get(resource, rdf_to_krl_name(resource))
 
-    def get_slot_name(self, predicate):
+    def get_slot_name(self, predicate) -> str:
         return self.predicate_names.get(predicate, rdf_to_krl_name(predicate))
 
-    def individual_to_km(self, ind_uri):
+    def translate_assertion(self, assertion) -> str:
+        expr = None
+        if assertion[0] == "class":
+            expr = self.class_to_km(assertion[1])
+        elif assertion[0] == "property":
+            expr = self.property_to_km(assertion[1])
+        elif assertion[0] == "individual":
+            expr = self.individual_to_km(assertion[1][0])
+        return expr
+
+    def individual_to_km(self, ind_uri) -> str:
         ind_name = self.get_resource_name(ind_uri)
         slots = {}
         self.logger.debug("Converting individual %s to KM syntax...", ind_name)
@@ -75,7 +87,7 @@ class KMSyntaxGenerator:
         self.logger.debug("Generated KM for individual: %s...", expr)
         return expr
 
-    def class_to_km(self, class_uri):
+    def class_to_km(self, class_uri) -> str:
         frame_name = self.get_resource_name(class_uri)
         print(f"KM class given frame name {frame_name} for {class_uri}")
         slots = {}
@@ -96,10 +108,9 @@ class KMSyntaxGenerator:
         expr += ")"
         print(f"Generated KM for class: {expr}")
         self.logger.debug("Generated KM for class: %s...", expr)
-        sys.exit(0)
         return expr
 
-    def property_to_km(self, prop_uri):
+    def property_to_km(self, prop_uri) -> str:
         prop_name = self.get_resource_name(prop_uri)
         self.logger.debug("Converting property %s to KM syntax...", prop_name)
         labels = [json.dumps(str(label)) for label in self.graph.objects(prop_uri, rdflib.RDFS.label)]
@@ -122,7 +133,7 @@ class KMSyntaxGenerator:
         self.logger.debug("Generated KM for property: %s...", expr)
         return expr
 
-    def get_referenced_assertions(self, assertion):
+    def get_referenced_assertions(self, assertion) -> List:
         self.logger.info(f"Getting reference assertions for {assertion}")
         clean_assertion = re.sub(r'"[^"]*"', '', assertion)
         self.logger.debug("Cleaned assertion: %s...", clean_assertion[:100])
@@ -146,7 +157,7 @@ class KMSyntaxGenerator:
         self.logger.debug("Found %d referenced assertions.", len(ref_assertions))
         return ref_assertions
 
-    def get_uri_type(self, uri):
+    def get_uri_type(self, uri) -> str:
         if (uri, rdflib.RDF.type, rdflib.OWL.Class) in self.graph:
             return "class"
         elif (uri, rdflib.RDF.type, rdflib.OWL.ObjectProperty) in self.graph:

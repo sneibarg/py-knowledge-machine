@@ -93,13 +93,7 @@ def main():
     km_generator = KMSyntaxGenerator(owl_graph_processor.graph, object_map, logger)
     translated_assertions = []
     for assertion in assertions:
-        if assertion[0] == "class":
-            expr = km_generator.class_to_km(assertion[1])
-        elif assertion[0] == "property":
-            expr = km_generator.property_to_km(assertion[1])
-        elif assertion[0] == "individual":
-            expr = km_generator.individual_to_km(assertion[1][0])
-        translated_assertions.append(expr)
+        translated_assertions.append(km_generator.translate_assertion(assertion))
 
     logger.info(f"Translated {len(translated_assertions)} in {int(time.time() - processing_start)} seconds.")
     if args.translate_only:
