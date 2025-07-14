@@ -10,7 +10,7 @@ from multiprocessing import Pool
 from processor.owl.OWLGraphProcessor import OWLGraphProcessor
 from service.KMSyntaxGenerator import KMSyntaxGenerator
 from service.LoggingService import LoggingService
-from service.OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, OpenCycService, FIXED_OWL_FILE, OWL_FILE
+from service.OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, OpenCycService, OWL_FILE
 
 BASE_DIR = os.getcwd()
 LOG_DIR = os.path.join(BASE_DIR, "runtime/logs")
