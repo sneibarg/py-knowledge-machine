@@ -1,10 +1,8 @@
-import sys
-from typing import List
-
 import rdflib
 import json
 import re
 
+from typing import List
 from service.KnowledgeMachineService import rdf_to_krl_name, STANDARD_PREDICATES, BUILT_IN_FRAMES
 from service.OpenCycService import cyc_annot_label, TYPE_PREDICATES
 
@@ -13,7 +11,7 @@ class KMSyntaxGenerator:
     def __init__(self, graph, object_map, parent_logger):
         self.graph = graph
         self.object_map = object_map
-        self.logger = parent_logger.getChild('KMSyntaxGenerator')
+        self.logger = parent_logger.getChild('KMSyntaxService')
         self.resource_names = self.build_resource_names()
         self.predicate_names = self.build_predicate_names()
         self.logger.info("Initialized with %d resources.", len(self.resource_names))
