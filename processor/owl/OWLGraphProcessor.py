@@ -15,13 +15,12 @@ failed_assertions = {}
 
 
 class OWLGraphProcessor:
-    def __init__(self, parent_logger, owl_file, pool, processing_function, custom_matching_function, args):
+    def __init__(self, parent_logger, pool, ontology_service, args):
         self.pool = pool
-        self.processing_function = processing_function
-        self.custom_matching_function = custom_matching_function
+        self.ontology_service = ontology_service
         self.args = args
         self.successfully_sent = successfully_sent
-        self.graph = self.load_ontology(parent_logger, owl_file)
+        self.graph = self.load_ontology(parent_logger)
         self.logger = parent_logger.getChild('OWL-Graph-Processor')
 
     def run(self) -> int:
@@ -35,7 +34,7 @@ class OWLGraphProcessor:
         while remaining_assertions and progress_made:
             new_remaining = set()
             progress_made = False
-            process_func = partial(self.processing_function, dry_run=self.args.dry_run)
+            process_func = partial(self.ontology_service.preprocess, dry_run=self.args.dry_run)
             results = self.pool.map(process_func, remaining_assertions)
             for assertion, success in zip(remaining_assertions, results):
                 if not success:
@@ -90,14 +89,14 @@ class OWLGraphProcessor:
             self.logger.error("SPARQL query for individuals failed: %s", str(e))
             raise
 
-    def load_ontology(self, logger, ontology):
+    def load_ontology(self, logger):
         start_time = time.time()
         onto_logger = logger.getChild('OntologyLoader')
 
-        if not os.path.exists(ontology) and self.processing_function is not None:
+        if self.ontology_service.preprocessed_file is not None and not os.path.exists(self.ontology_service.preprocessed_file):
             onto_logger.info("Preprocessed OWL file not found. Triggering preprocessing.")
             try:
-                self.processing_function(logger)
+                self.ontology_service.preprocess(self.ontology_service.file)
             except Exception as e:
                 raise RuntimeError(f"Preprocessing failed: {e}") from e
 

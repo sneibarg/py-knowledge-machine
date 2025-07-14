@@ -23,21 +23,26 @@ FIXED_OWL_FILE = os.path.join(BASE_DIR, "runtime/opencyc-owl/opencyc-2012-05-10_
 TINY_OWL_FILE = os.path.join(BASE_DIR, "runtime/opencyc-owl/opencyc-owl-tiny.owl")
 
 
-def is_cyc_id(val):
-    return isinstance(val, str) and re.match(r"^Mx[0-9A-Za-z\-]+$", val)
-
-
 class OpenCycService:
     def __init__(self, logger):
+        self.file = OWL_FILE
+        self.preprocessed_file = FIXED_OWL_FILE
         self.logger = logger
 
-    def preprocess_cyc_file(self, file, preprocessed_file):
-        self.logger.info("Starting preprocessing of OWL file: %s", file)
-        if not os.path.exists(file):
-            self.logger.error("OWL file not found at %s", file)
-            raise FileNotFoundError(f"OWL file not found at {file}")
+    @staticmethod
+    def is_cyc_id(val):
+        return isinstance(val, str) and re.match(r"^Mx[0-9A-Za-z\-]+$", val)
 
-        with open(file, 'r', encoding='utf-8') as infile, open(preprocessed_file, 'w', encoding='utf-8') as outfile:
+    def preprocess(self, owl_file=None):
+        if owl_file is None and not os.path.exists(self.file):
+            self.logger.error("Default OWL file not found at %s", self.file)
+            raise FileNotFoundError(f"Default OWL file not found at {self.file}")
+
+        if owl_file is None:
+            owl_file = self.file
+
+        self.logger.info("Starting preprocessing of OWL file: %s", owl_file)
+        with open(owl_file, 'r', encoding='utf-8') as infile, open(self.preprocessed_file, 'w', encoding='utf-8') as outfile:
             for line in infile:
                 if 'rdf:datatype="http://www.w3.org/2001/XMLSchema#integer"' in line:
                     match = re.search(r'>(\w+)</', line)
@@ -50,4 +55,4 @@ class OpenCycService:
                         self.logger.info("Fixed datatype mismatch: %s", fixed_line.strip())
                         continue
                 outfile.write(line)
-        self.logger.info("Preprocessing complete. Saved as %s", preprocessed_file)
+        self.logger.info("Preprocessing complete. Saved as %s", self.preprocessed_file)
