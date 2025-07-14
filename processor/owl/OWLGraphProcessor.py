@@ -105,7 +105,7 @@ class OWLGraphProcessor:
         formats = ["xml", "turtle"]  # Fallback formats
         for fmt in formats:
             try:
-                with open(ontology, 'r', encoding='utf-8') as f:  # Use with for file
+                with open(self.ontology_service.preprocessed_file, 'r', encoding='utf-8') as f:  # Use with for file
                     g.parse(f, format=fmt)
                 onto_logger.info(
                     f"Ontology loaded successfully with {len(g)} triples in {int(time.time() - start_time)} seconds.")
@@ -117,7 +117,7 @@ class OWLGraphProcessor:
             except Exception as e:
                 raise RuntimeError(f"Unexpected error loading ontology: {e}") from e
 
-        raise ValueError(f"Failed to parse ontology {ontology} in all supported formats.")
+        raise ValueError(f"Failed to parse ontology {self.ontology_service.preprocessed_file} in all supported formats.")
 
     def print_classes(self, object_map):
         for subject in self.graph.subjects(RDF.type, OWL.Class):
