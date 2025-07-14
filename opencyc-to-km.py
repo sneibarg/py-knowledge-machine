@@ -15,7 +15,6 @@ from service.OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, OpenCycService
 num_processes = int(os.cpu_count() - 1)
 logging_service = LoggingService(os.path.join(os.getcwd(), "runtime/logs"), "OWL-to-KM")
 logger = logging_service.setup_logging(False)
-open_cyc_service = OpenCycService(logger)
 
 os.makedirs(os.path.join(os.getcwd(), "runtime/logs"), exist_ok=True)
 
@@ -23,7 +22,6 @@ os.makedirs(os.path.join(os.getcwd(), "runtime/logs"), exist_ok=True)
 def generate_assertions(graph_processor, use_sparql_queries=False):
     start_time = time.time()
     if use_sparql_queries:
-        logger.info("Using SPARQL queries for RDF optimization.")
         try:
             classes = graph_processor.get_classes_via_sparql()
             properties = graph_processor.get_properties_via_sparql()
@@ -62,12 +60,18 @@ def parse_arguments():
     return args
 
 
+def translate_only(args, translated_assertions):
+    if args.debug:
+        for assertion in translated_assertions:
+            logger.debug(json.dumps(assertion, indent=2))
+
+
 def main():
-    global open_cyc_service
     args = parse_arguments()
     if args.debug:
         logger.setLevel(logging.DEBUG)
 
+    open_cyc_service = OpenCycService(logger)
     if not os.path.exists(open_cyc_service.file):
         logger.error("OWL file not found at %s.", open_cyc_service.file)
         sys.exit(1)
@@ -86,11 +90,9 @@ def main():
     translated_assertions = []
     for assertion in assertions:
         translated_assertions.append(km_generator.translate_assertion(assertion))
-
     logger.info(f"Translated {len(translated_assertions)} in {int(time.time() - processing_start)} seconds.")
     if args.translate_only:
-        for assertion in translated_assertions:
-            logger.info(json.dumps(assertion, indent=2))
+        translate_only(args, translated_assertions)
         sys.exit(0)
 
 
