@@ -8,10 +8,11 @@ import rdflib
 
 from multiprocessing import Pool
 from processor.owl.OWLGraphProcessor import OWLGraphProcessor
-from service.KMSyntaxGenerator import KMSyntaxGenerator
+from service.KMSyntaxService import KMSyntaxGenerator
 from service.LoggingService import LoggingService
-from service.OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, OpenCycService, OWL_FILE
+from service.OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, OpenCycService
 
+num_processes = int(os.cpu_count() - 1)
 BASE_DIR = os.getcwd()
 LOG_DIR = os.path.join(BASE_DIR, "runtime/logs")
 logging_service = LoggingService(LOG_DIR, "OWL-to-KM")
@@ -66,14 +67,11 @@ def parse_arguments():
 def main():
     global open_cyc_service
     args = parse_arguments()
-
-    num_processes = 1
-
     if args.debug:
         logger.setLevel(logging.DEBUG)
 
-    if not os.path.exists(OWL_FILE):
-        logger.error("OWL file not found at %s.", OWL_FILE)
+    if not os.path.exists(open_cyc_service.file):
+        logger.error("OWL file not found at %s.", open_cyc_service.file)
         sys.exit(1)
 
     if num_processes > 1:
