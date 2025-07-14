@@ -103,34 +103,15 @@ class OWLGraphProcessor:
         try:
             import oxrdflib
             g = rdflib.Graph(store=oxrdflib.OxigraphStore())
-            onto_logger.info("Successfully initialized graph with Oxrdflib.")
+            onto_logger.info(f"Ontology loaded successfully with {len(g)} triples in {int(time.time() - start_time)} seconds.")
+            return g
         except ImportError as ie:
             onto_logger.warning("Oxrdflib not installed: %s. Falling back to default rdflib store.", str(ie))
             g = rdflib.Graph()
         except Exception as e:
             onto_logger.warning("Failed to initialize Oxrdflib: %s. Falling back to default rdflib store.", str(e))
             g = rdflib.Graph()
-        else:
-            g = rdflib.Graph()
         return g
-        # onto_logger.info("Loading ontology with rdflib.")
-        # g = rdflib.Graph()
-        # formats = ["xml", "turtle"]  # Fallback formats
-        # for fmt in formats:
-        #     try:
-        #         with open(self.ontology_service.preprocessed_file, 'r', encoding='utf-8') as f:  # Use with for file
-        #             g.parse(f, format=fmt)
-        #         onto_logger.info(
-        #             f"Ontology loaded successfully with {len(g)} triples in {int(time.time() - start_time)} seconds.")
-        #         return g
-        #     except rdflib.exceptions.ParserError as pe:
-        #         onto_logger.warning(f"Failed to parse as {fmt}: {pe}. Trying next format.")
-        #     except FileNotFoundError as fe:
-        #         raise FileNotFoundError(f"OWL file missing after preprocessing: {fe}") from fe
-        #     except Exception as e:
-        #         raise RuntimeError(f"Unexpected error loading ontology: {e}") from e
-        # 
-        # raise ValueError(f"Failed to parse ontology {self.ontology_service.preprocessed_file} in all supported formats.")
 
     def print_classes(self, object_map):
         for subject in self.graph.subjects(RDF.type, OWL.Class):
@@ -184,7 +165,7 @@ class OWLGraphProcessor:
                     if label:
                         return label
             return self.short_name(node)
-        elif self.custom_matching_function(node):
+        elif self.ontology_service.custom_matching_function(node):
             uri = self.get_full_uri(node)
             label = self.find_rdfs_label(uri)
             if label:
@@ -197,7 +178,7 @@ class OWLGraphProcessor:
         return self.find_predicate_label(node)
 
     def find_predicate_label(self, node):
-        if isinstance(node, str) and self.custom_matching_function(node):
+        if isinstance(node, str) and self.ontology_service.custom_matching_function(node):
             node = self.get_full_uri(node)
         for label in self.graph.objects(node, annotation_label):
             if not hasattr(label, 'language') or label.language is None or label.language == 'en':

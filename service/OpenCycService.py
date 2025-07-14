@@ -30,7 +30,7 @@ class OpenCycService:
         self.logger = logger
 
     @staticmethod
-    def is_cyc_id(val):
+    def custom_matching_function(val):
         return isinstance(val, str) and re.match(r"^Mx[0-9A-Za-z\-]+$", val)
 
     def preprocess(self, owl_file=None):

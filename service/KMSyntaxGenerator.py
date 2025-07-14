@@ -91,7 +91,7 @@ class KMSyntaxGenerator:
                     continue
                 if slot in STANDARD_PREDICATES:
                     slot = STANDARD_PREDICATES[slot]
-                print(f"SLOT={slot}; VALUE={value}")
+                # print(f"SLOT={slot}; VALUE={value}")
                 expr += f" ({slot} ({' '.join(values)}))"
         expr += ")"
         print(f"Generated KM for class: {expr}")
