@@ -7,24 +7,19 @@ from functools import partial
 from rdflib import Literal, URIRef, RDFS, RDF, OWL
 from service.KMSyntaxService import STANDARD_PREDICATES
 
-BASES = []
-assertions = []
-annotation_label = None
-successfully_sent = None
-failed_assertions = {}
-
 
 class OWLGraphProcessor:
     def __init__(self, parent_logger, pool, ontology_service, args):
+        self.logger = parent_logger.getChild('OWL-Graph-Processor')
         self.pool = pool
         self.ontology_service = ontology_service
         self.args = args
-        self.successfully_sent = successfully_sent
-        self.graph = self.load_ontology(parent_logger)
-        self.logger = parent_logger.getChild('OWL-Graph-Processor')
+        self.graph = self.load_ontology()
+        self.successfully_sent = []
 
-    def run(self) -> int:
-        remaining_assertions = set(assertions)
+    def run(self, assertion_list) -> int:
+        remaining_assertions = set(assertion_list)
+        failed_assertions = {}
         progress_made = True
 
         if self.pool is None:
@@ -100,9 +95,9 @@ class OWLGraphProcessor:
             self.logger.error("SPARQL query for individuals failed: %s", str(e))
             raise
 
-    def load_ontology(self, logger):
+    def load_ontology(self):
         start_time = time.time()
-        onto_logger = logger.getChild('OntologyLoader')
+        onto_logger = self.logger.getChild('OntologyLoader')
 
         if self.ontology_service.preprocessed_file is not None and not os.path.exists(self.ontology_service.preprocessed_file):
             onto_logger.info("Preprocessed OWL file not found. Triggering preprocessing.")

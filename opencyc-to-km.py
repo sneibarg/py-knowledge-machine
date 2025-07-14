@@ -13,13 +13,11 @@ from service.LoggingService import LoggingService
 from service.OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, OpenCycService
 
 num_processes = int(os.cpu_count() - 1)
-BASE_DIR = os.getcwd()
-LOG_DIR = os.path.join(BASE_DIR, "runtime/logs")
-logging_service = LoggingService(LOG_DIR, "OWL-to-KM")
+logging_service = LoggingService(os.path.join(os.getcwd(), "runtime/logs"), "OWL-to-KM")
 logger = logging_service.setup_logging(False)
 open_cyc_service = OpenCycService(logger)
 
-os.makedirs(LOG_DIR, exist_ok=True)
+os.makedirs(os.path.join(os.getcwd(), "runtime/logs"), exist_ok=True)
 
 
 def generate_assertions(graph_processor, use_sparql_queries=False):
@@ -74,11 +72,7 @@ def main():
         logger.error("OWL file not found at %s.", open_cyc_service.file)
         sys.exit(1)
 
-    if num_processes > 1:
-        pool = Pool(processes=num_processes)
-    else:
-        pool = None
-
+    pool = Pool(processes=num_processes)
     processing_start = time.time()
     logger.info("Starting KM translation process.")
     owl_graph_processor = OWLGraphProcessor(logger, pool, open_cyc_service, args)
@@ -98,9 +92,6 @@ def main():
         for assertion in translated_assertions:
             logger.info(json.dumps(assertion, indent=2))
         sys.exit(0)
-
-    total_expressions = len(owl_graph_processor.successfully_sent)
-    logger.info("Processed and sent %d KRL expressions in total.", total_expressions)
 
 
 if __name__ == "__main__":
