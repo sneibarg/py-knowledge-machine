@@ -53,16 +53,13 @@ class OWLGraphProcessor:
 
     def extract_labels_and_ids(self):
         child_logger = self.logger.getChild('LabelsExtractor')
-        child_logger.info("Extracting labels and IDs from graph.")
         result = {}
         for subject in self.graph.subjects():
-            label = next((str(obj) for obj in self.graph.objects(subject, rdflib.RDFS.label) if isinstance(obj, rdflib.Literal)),
-                         None)
-            external_id = next(
-                (str(obj) for obj in self.graph.objects(subject, rdflib.OWL.sameAs) if isinstance(obj, rdflib.URIRef)), None)
+            label = next((str(obj) for obj in self.graph.objects(subject, rdflib.RDFS.label) if isinstance(obj, rdflib.Literal)), None)
+            external_id = next((str(obj) for obj in self.graph.objects(subject, rdflib.OWL.sameAs) if isinstance(obj, rdflib.URIRef)), None)
             if label or external_id:
                 result[subject] = {'label': label, 'external_id': external_id}
-        child_logger.info("Extracted labels/IDs for %d resources.", len(result))
+        child_logger.info(f"Extracted labels/IDs for {len(result)} resources.")
         return result
 
     def get_classes_via_sparql(self):
