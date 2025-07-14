@@ -87,11 +87,10 @@ def main():
     owl_graph_processor.set_annotation_label(CYC_ANNOT_LABEL)
     owl_graph_processor.set_bases(CYC_BASES)
     object_map = owl_graph_processor.extract_labels_and_ids()
-
-    km_generator = KMSyntaxGenerator(owl_graph_processor.graph, object_map, logger)
     assertions = generate_assertions(owl_graph_processor, args.use_sparql_queries)
     if args.generate_only:
         sys.exit(0)
+    km_generator = KMSyntaxGenerator(owl_graph_processor.graph, object_map, logger)
     translated_assertions = []
     for assertion in assertions:
         if assertion[0] == "class":
