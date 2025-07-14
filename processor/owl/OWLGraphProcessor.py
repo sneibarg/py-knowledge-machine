@@ -51,6 +51,20 @@ class OWLGraphProcessor:
 
         return len(self.successfully_sent)
 
+    def extract_labels_and_ids(self):
+        child_logger = self.logger.getChild('LabelsExtractor')
+        child_logger.info("Extracting labels and IDs from graph.")
+        result = {}
+        for subject in self.graph.subjects():
+            label = next((str(obj) for obj in self.graph.objects(subject, rdflib.RDFS.label) if isinstance(obj, rdflib.Literal)),
+                         None)
+            external_id = next(
+                (str(obj) for obj in self.graph.objects(subject, rdflib.OWL.sameAs) if isinstance(obj, rdflib.URIRef)), None)
+            if label or external_id:
+                result[subject] = {'label': label, 'external_id': external_id}
+        child_logger.info("Extracted labels/IDs for %d resources.", len(result))
+        return result
+
     def get_classes_via_sparql(self):
         query = """
         SELECT ?s WHERE {
@@ -102,7 +116,7 @@ class OWLGraphProcessor:
 
         try:
             import oxrdflib
-            with open(self.ontology_service.preprocessed_file, 'r', encoding='utf-8') as f:  # Use with for file
+            with open(self.ontology_service.preprocessed_file, 'r', encoding='utf-8') as f:
                 g = rdflib.Graph(store=oxrdflib.OxigraphStore())
                 g.parse(f, format="xml")
             onto_logger.info(f"Ontology loaded successfully with {len(g)} triples in {int(time.time() - start_time)} seconds.")
@@ -114,24 +128,6 @@ class OWLGraphProcessor:
             onto_logger.warning("Failed to initialize Oxrdflib: %s. Falling back to default rdflib store.", str(e))
             g = rdflib.Graph()
         return g
-        # onto_logger.info("Loading ontology with rdflib.")
-        # g = rdflib.Graph()
-        # formats = ["xml", "turtle"]  # Fallback formats
-        # for fmt in formats:
-        #     try:
-        #         with open(self.ontology_service.preprocessed_file, 'r', encoding='utf-8') as f:  # Use with for file
-        #             g.parse(f, format=fmt)
-        #         onto_logger.info(
-        #             f"Ontology loaded successfully with {len(g)} triples in {int(time.time() - start_time)} seconds.")
-        #         return g
-        #     except rdflib.exceptions.ParserError as pe:
-        #         onto_logger.warning(f"Failed to parse as {fmt}: {pe}. Trying next format.")
-        #     except FileNotFoundError as fe:
-        #         raise FileNotFoundError(f"OWL file missing after preprocessing: {fe}") from fe
-        #     except Exception as e:
-        #         raise RuntimeError(f"Unexpected error loading ontology: {e}") from e
-        #
-        # raise ValueError(f"Failed to parse ontology {self.ontology_service.preprocessed_file} in all supported formats.")
 
     def print_classes(self, object_map):
         for subject in self.graph.subjects(RDF.type, OWL.Class):

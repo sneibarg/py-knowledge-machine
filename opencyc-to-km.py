@@ -63,21 +63,6 @@ def parse_arguments():
     return args
 
 
-def extract_labels_and_ids(graph, parent_logger):
-    child_logger = parent_logger.getChild('LabelsExtractor')
-    child_logger.info("Extracting labels and IDs from graph.")
-    result = {}
-    for subject in graph.subjects():
-        label = next((str(obj) for obj in graph.objects(subject, rdflib.RDFS.label) if isinstance(obj, rdflib.Literal)),
-                     None)
-        external_id = next(
-            (str(obj) for obj in graph.objects(subject, rdflib.OWL.sameAs) if isinstance(obj, rdflib.URIRef)), None)
-        if label or external_id:
-            result[subject] = {'label': label, 'external_id': external_id}
-    child_logger.info("Extracted labels/IDs for %d resources.", len(result))
-    return result
-
-
 def main():
     global open_cyc_service
     args = parse_arguments()
@@ -101,7 +86,7 @@ def main():
     owl_graph_processor = OWLGraphProcessor(logger, pool, open_cyc_service, args)
     owl_graph_processor.set_annotation_label(CYC_ANNOT_LABEL)
     owl_graph_processor.set_bases(CYC_BASES)
-    object_map = extract_labels_and_ids(owl_graph_processor.graph, logger)
+    object_map = owl_graph_processor.extract_labels_and_ids()
 
     km_generator = KMSyntaxGenerator(owl_graph_processor.graph, object_map, logger)
     assertions = generate_assertions(owl_graph_processor, args.use_sparql_queries)
