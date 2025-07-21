@@ -12,6 +12,7 @@ from service.KMSyntaxService import KMSyntaxGenerator
 from service.LoggingService import LoggingService
 from service.OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, OpenCycService
 
+host = "dragon:3602"
 num_processes = int(os.cpu_count() - 1)
 logging_service = LoggingService(os.path.join(os.getcwd(), "runtime/logs"), "OWL-to-KM")
 logger = logging_service.setup_logging(False)
@@ -71,7 +72,7 @@ def main():
     if args.debug:
         logger.setLevel(logging.DEBUG)
 
-    open_cyc_service = OpenCycService(logger)
+    open_cyc_service = OpenCycService(host, logger)
     if not os.path.exists(open_cyc_service.file):
         logger.error("OWL file not found at %s.", open_cyc_service.file)
         sys.exit(1)

@@ -2,6 +2,7 @@ import os
 import re
 import rdflib
 from rdflib import URIRef, Namespace
+from agent.CycLAgent import CycLAgent
 
 TYPE_PREDICATES = [
     rdflib.RDF.type,
@@ -23,11 +24,12 @@ FIXED_OWL_FILE = os.path.join(BASE_DIR, "runtime/opencyc-owl/opencyc-2012-05-10_
 TINY_OWL_FILE = os.path.join(BASE_DIR, "runtime/opencyc-owl/opencyc-owl-tiny.owl")
 
 
-class OpenCycService:
-    def __init__(self, logger):
+class OpenCycService(CycLAgent):
+    def __init__(self, host, logger):
+        super().__init__(host)
+        self.logger = logger
         self.file = OWL_FILE
         self.preprocessed_file = FIXED_OWL_FILE
-        self.logger = logger
 
     @staticmethod
     def custom_matching_function(val):
