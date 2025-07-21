@@ -8,7 +8,7 @@ import rdflib
 
 from multiprocessing import Pool
 from processor.owl.OWLGraphProcessor import OWLGraphProcessor
-from service.KMSyntaxService import KMSyntaxGenerator
+from service.KMSyntaxService import KMSyntaxService
 from service.LoggingService import LoggingService
 from service.OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, OpenCycService
 
@@ -87,7 +87,7 @@ def main():
     assertions = generate_assertions(owl_graph_processor, args.use_sparql_queries)
     if args.generate_only:
         sys.exit(0)
-    km_generator = KMSyntaxGenerator(owl_graph_processor.graph, object_map, logger)
+    km_generator = KMSyntaxService(owl_graph_processor.graph, object_map, logger)
     translated_assertions = []
     for assertion in assertions:
         translated_assertions.append(km_generator.translate_assertion(assertion))

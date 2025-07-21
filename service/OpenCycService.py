@@ -32,10 +32,10 @@ class OpenCycService(CycLAgent):
         self.preprocessed_file = FIXED_OWL_FILE
 
     @staticmethod
-    def custom_matching_function(val):
+    def custom_matching_function(val) -> str:
         return isinstance(val, str) and re.match(r"^Mx[0-9A-Za-z\-]+$", val)
 
-    def preprocess(self, owl_file=None):
+    def preprocess(self, owl_file=None) -> None:
         if owl_file is None and not os.path.exists(self.file):
             self.logger.error("Default OWL file not found at %s", self.file)
             raise FileNotFoundError(f"Default OWL file not found at {self.file}")

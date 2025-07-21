@@ -1,4 +1,6 @@
 import urllib
+from typing import Tuple, List
+
 import requests
 from datetime import time
 from bs4 import BeautifulSoup
@@ -9,7 +11,7 @@ class CycLAgent:
         self.base_url = f"http://{host}/cgi-bin/"
         self.session = requests.Session()  # For persistent connections
 
-    def _get_uniquifier_code(self, url):
+    def _get_uniquifier_code(self, url) -> dict:
         response = self.session.get(url)
         if response.status_code != 200:
             raise ValueError("Failed to fetch page for uniquifier code.")
@@ -19,7 +21,7 @@ class CycLAgent:
             return input_tag['value']
         raise ValueError("Uniquifier code not found in the page.")
 
-    def create_constant(self, name):
+    def create_constant(self, name) -> dict:
         create_url = self.base_url + "cg?cb-create"
         uniquifier = self._get_uniquifier_code(create_url)
         post_data = {
@@ -48,7 +50,7 @@ class CycLAgent:
 
     def assert_sentence(self, sentence, mt='BaseKB', strength=':default', assertion_queue=':local',
                         mt_time_dimension_specified='na', mt_time_interval='Always-TimeInterval',
-                        mt_time_parameter='Null-TimeParameter'):
+                        mt_time_parameter='Null-TimeParameter') -> dict:
 
         assert_url = self.base_url + "cg?cb-assert"
         uniquifier = self._get_uniquifier_code(assert_url)
@@ -83,7 +85,7 @@ class CycLAgent:
             'recent_assertions': recent_assertions
         }
 
-    def search_term(self, term, mode='default'):
+    def search_term(self, term, mode='default') -> str:
         search_params = {
             'cb-handle-specify': '',
             'handler': 'cb-cf',
@@ -121,7 +123,7 @@ class CycLAgent:
             return self._parse_all_assertions(content_soup)
 
     @staticmethod
-    def _parse_all_assertions(soup):
+    def _parse_all_assertions(soup) -> str:
         output = []
         predicate_strong = soup.find('strong', string=lambda t: t and 'Predicate :' in t)
         if predicate_strong:
@@ -179,7 +181,7 @@ class CycLAgent:
 
         return '\n'.join(output)
 
-    def alpha_paging(self):
+    def alpha_paging(self) -> List:
         start_time = time.time()
         all_terms = []
         page_count = 0
@@ -215,7 +217,7 @@ class CycLAgent:
         print(f"Time taken: {total_time:.2f} seconds")
         return all_terms
 
-    def _fetch_alpha_index(self, start=None):
+    def _fetch_alpha_index(self, start=None) -> Tuple[List, str]:
         if start is None:
             url = self.base_url + "cg?cb-alpha-top"
         else:

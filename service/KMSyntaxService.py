@@ -3,11 +3,11 @@ import json
 import re
 
 from typing import List
-from service.KnowledgeMachineService import rdf_to_krl_name, STANDARD_PREDICATES, BUILT_IN_FRAMES
+from service.KMService import rdf_to_krl_name, STANDARD_PREDICATES, BUILT_IN_FRAMES
 from service.OpenCycService import cyc_annot_label, TYPE_PREDICATES
 
 
-class KMSyntaxGenerator:
+class KMSyntaxService:
     def __init__(self, graph, object_map, parent_logger):
         self.graph = graph
         self.object_map = object_map

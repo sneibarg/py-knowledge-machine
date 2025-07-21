@@ -12,20 +12,20 @@ class LoggingService:
         pass
 
     @staticmethod
-    def set_logger_level(logger, level):
+    def set_logger_level(logger, level) -> None:
         logger.setLevel(level)
 
     @staticmethod
-    def set_logger_name(logger_name):
+    def set_logger_name(logger_name) -> None:
         logger = logging.getLogger(logger_name)
         logger.name = logger_name
 
     @staticmethod
-    def set_logger_formatter(logger_name, formatter):
+    def set_logger_formatter(logger_name, formatter) -> None:
         logger = logging.getLogger(logger_name)
         logger.setFormatter(formatter)
 
-    def setup_logging(self, debug=False):
+    def setup_logging(self, debug=False) -> logging:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_file = os.path.join(self.logger_dir, f"application_{timestamp}_{self.pid}.log")
         logging.getLogger('').handlers = []

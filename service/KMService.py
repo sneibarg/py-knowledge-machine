@@ -23,7 +23,7 @@ BUILT_IN_FRAMES = {
 }
 
 
-def rdf_to_krl_name(uri):
+def rdf_to_krl_name(uri) -> str:
     return str(uri).split('/')[-1]
 
 
@@ -38,7 +38,7 @@ class KMService:
                                        requests.exceptions.Timeout,
                                        requests.exceptions.HTTPError))
     )
-    def send_to_km(self, expr, fail_mode="fail", dry_run=False):
+    def send_to_km(self, expr, fail_mode="fail", dry_run=False) -> dict:
         """Send a KM expression to the server."""
         logger = logging.getLogger('OWL-to-KM.rest_client')
         logger.info("Preparing to send expression: %s...", expr[:100])
