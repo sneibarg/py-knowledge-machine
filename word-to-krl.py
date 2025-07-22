@@ -15,6 +15,7 @@ dataset_processor = DatasetProcessor(parent_logger=logger, max_shots=3)
 synsets = requests.get(wordnet_api, params=payload).json()['synsets']
 for synset in synsets:
     definition = str(synset['definition'])
+    print("Definition: "+definition)
     relations = dataset_processor.stanford_relations(definition)
     parse_tree = relations['sentences'][0]['parseTree']
     tree = ParseTreeNode.from_string(parse_tree)
@@ -25,7 +26,7 @@ for synset in synsets:
         for node in np_nodes:
             print([leaf for leaf in node.leaves()])
     all_nouns = tree.get_words_by_tags({'NN', 'NNS'})
-    print(all_nouns)
+    print("NOUNS="+str(all_nouns))
     print("--------------------------------------------------------------")
 
 
