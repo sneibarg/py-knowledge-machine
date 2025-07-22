@@ -1,9 +1,9 @@
 import urllib
-from typing import Tuple, List
-
 import requests
 from datetime import time
 from bs4 import BeautifulSoup
+from bs4.element import AttributeValueList
+from typing import Tuple, List, Union
 
 
 class CycLAgent:
@@ -11,7 +11,7 @@ class CycLAgent:
         self.base_url = f"http://{host}/cgi-bin/"
         self.session = requests.Session()  # For persistent connections
 
-    def _get_uniquifier_code(self, url) -> dict:
+    def _get_uniquifier_code(self, url) -> Union[str, AttributeValueList]:
         response = self.session.get(url)
         if response.status_code != 200:
             raise ValueError("Failed to fetch page for uniquifier code.")
