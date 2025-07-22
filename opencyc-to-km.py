@@ -8,7 +8,7 @@ import rdflib
 
 from multiprocessing import Pool
 from processor.owl.OWLGraphProcessor import OWLGraphProcessor
-from service.KMSyntaxService import KMSyntaxService
+from service.KMService import KMSyntaxService
 from service.LoggingService import LoggingService
 from service.OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, OpenCycService
 
