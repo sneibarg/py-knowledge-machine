@@ -14,7 +14,7 @@ from service import get_session
 from service.HuggingFaceDatasetService import HuggingFaceDatasetService
 from service.LoggingService import LoggingService
 
-nlp_api_url = "http://malboji:8069/nlp/relations"
+nlp_api_url = "http://dragon:9081/nlp/relations"
 mistral_api_url = "http://dragon:11435/api/generate"
 url_prompt = ("I am your automated ontology editor, and I am reviewing a Uniform Resource Locator."
               "I will generate a one sentence response describing the URL. The URL is: ")
@@ -23,7 +23,7 @@ ontologist_prompt = ("I am your automated ontology editor, and I am reviewing da
                      "I will ignore formalities, not be verbose, and respond with only the facts. "
                      "The following text you have given me is: ")
 
-logging_service = LoggingService('DataProcessor', os.path.join(os.getcwd(), "../../runtime/logs"))
+logging_service = LoggingService(os.path.join(os.getcwd(), "runtime", "logs"), 'DatasetProcessor')
 logger = logging_service.setup_logging(False)
 worker_logger = None
 
