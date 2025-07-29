@@ -71,18 +71,21 @@ class CycLServerAgent:
         """
         query_url = self.base_url + "cg?cb-query"
         uniquifier = self._get_uniquifier_code(query_url)
-        post_data = update_payload(cb_handle_query, sentence, mt_monad, uniquifier, **kwargs)
-        query_response = self.session.post(self.base_url + "cg", data=post_data)
+        payload = update_payload(cb_handle_query, sentence, mt_monad, uniquifier, **kwargs)
+        query_response = self.session.post(self.base_url + "cg", data=payload)
         if query_response.status_code != 200:
             raise ValueError("Failed to start query.")
 
         soup = BeautifulSoup(query_response.text, 'html.parser')
-        focal_problem_store = soup.find('input', {'name': 'focal-problem-store'})['value'] if soup.find('input', {'name': 'focal-problem-store'}) else None
-        focal_inference = soup.find('input', {'name': 'focal-inference'})['value'] if soup.find('input', {'name': 'focal-inference'}) else None
+        focal_problem_store = soup.find('input', {'name': 'focal-problem-store'})['value'] if soup.find('input', {
+            'name': 'focal-problem-store'}) else None
+        focal_inference = soup.find('input', {'name': 'focal-inference'})['value'] if soup.find('input', {
+            'name': 'focal-inference'}) else None
 
         if not focal_problem_store or not focal_inference:
             raise ValueError("Failed to extract problem store or inference ID.")
 
+        answer_dict = {}
         all_answers = []
         max_attempts = 10
         attempt = 0
@@ -96,13 +99,10 @@ class CycLServerAgent:
                 raise ValueError("Failed to fetch all inference answers page.")
 
             all_answers_soup = BeautifulSoup(all_answers_response.text, 'html.parser')
-
             mt_strong = all_answers_soup.find('strong', string='Mt :')
-            mt = mt_strong.find_next_sibling('span').get_text(strip=True) if mt_strong else post_data['mt-monad']
-
+            mt = mt_strong.find_next_sibling('span').get_text(strip=True) if mt_strong else payload['mt-monad']
             query_strong = all_answers_soup.find('strong', string='EL Query :')
             el_query = query_strong.find_next_sibling('span').get_text(strip=True) if query_strong else sentence
-
             status_strong = all_answers_soup.find('strong', string='Status :')
             status = status_strong.next_sibling.strip() if status_strong else 'Unknown'
 
@@ -112,9 +112,11 @@ class CycLServerAgent:
                 for row in rows:
                     cells = row.find_all('td')
                     if len(cells) >= 2:
-                        explain = cells[0].get_text(strip=True).replace('*', 'New: ')
+                        explain = cells[0].get_text(strip=True).replace('*', '')
                         binding = cells[1].get_text(strip=True)
-                        all_answers.append({'explain': explain, 'binding': binding})
+                        if explain not in answer_dict:
+                            all_answers.append({'explain': explain, 'binding': binding})
+                        answer_dict[explain] = binding
 
             current_answer_count = len(all_answers)
             if 'Exhaust Total' in status and current_answer_count == last_answer_count:
@@ -123,7 +125,7 @@ class CycLServerAgent:
             last_answer_count = current_answer_count
             attempt += 1
 
-            if 'Suspended' in status and post_data.get('radio-CONTINUABLE?_') == '1':
+            if 'Suspended' in status and payload.get('radio-CONTINUABLE?_') == '1':
                 continue_url = self.base_url + "cg"
                 continue_data = {
                     'cb-handle-query': '',
@@ -145,21 +147,21 @@ class CycLServerAgent:
                 seen.add(ans['binding'])
                 unique_answers.append(ans)
 
-        pretty_output = f"Query: {sentence}\nMt: {mt}\nStatus: {status}\n\nAnswers ({len(unique_answers)}):\n"
-        for ans in unique_answers:
-            pretty_output += f"{ans['explain']}: {ans['binding']}\n"
+        pretty_output = f"Query: {sentence}\nMt: {mt}\nStatus: {status}\n\nAnswers ({len(answer_dict.items())}):\n"
+        for ans in sorted(answer_dict.items()):
+            if ans in answer_dict:
+                pretty_output += f"{ans}: {answer_dict[ans]}\n"
 
         print(pretty_output)
 
         return {
-            'status': 'success',
+            'status': status,
             'query_response_text': query_response.text,
             'all_answers_response_text': all_answers_response.text,
-            'answers': unique_answers,
+            'answers': answer_dict,
             'pretty_output': pretty_output,
             'mt': mt,
-            'el_query': el_query,
-            'status': status
+            'el_query': el_query
         }
 
     def get_all_inference_answers(self, problem_store, inference):
@@ -222,12 +224,14 @@ class CycLServerAgent:
         index_src = frames[0]['src']
         content_src = frames[1]['src']
         constant_id = index_src.split('&')[1]
-        content_url = self.base_url + (content_src if mode == 'default' else f"cg?cb-inferred-gaf-arg-assertions&{constant_id}")
+        content_url = self.base_url + (
+            content_src if mode == 'default' else f"cg?cb-inferred-gaf-arg-assertions&{constant_id}")
         content_response = self.session.get(content_url)
         if not content_response.ok:
             raise ValueError("Failed to fetch content frame.")
         content_soup = BeautifulSoup(content_response.text, 'html.parser')
-        return content_soup.get_text(separator='\n\n', strip=True) if mode == 'default' else self._parse_all_assertions(content_soup)
+        return content_soup.get_text(separator='\n\n', strip=True) if mode == 'default' else self._parse_all_assertions(
+            content_soup)
 
     def _parse_all_assertions(self, soup):
         output = []
@@ -312,12 +316,14 @@ class CycLServerAgent:
         return all_terms
 
     def _fetch_alpha_index(self, start=None):
-        url = self.base_url + ("cg?cb-alpha-top" if start is None else f"cg?cb-alpha-pagedn|{urllib.parse.quote(start)}")
+        url = self.base_url + (
+            "cg?cb-alpha-top" if start is None else f"cg?cb-alpha-pagedn|{urllib.parse.quote(start)}")
         response = self.session.get(url)
         if not response.ok:
             return None, None
         soup = BeautifulSoup(response.text, 'html.parser')
-        tables = soup.find_all('table', attrs={'noflow': ' noflow', 'border': '0', 'cellpadding': '0', 'cellspacing': '0'})
+        tables = soup.find_all('table',
+                               attrs={'noflow': ' noflow', 'border': '0', 'cellpadding': '0', 'cellspacing': '0'})
         terms_table = None
         for table in tables:
             if 'nowrap' not in table.attrs:
