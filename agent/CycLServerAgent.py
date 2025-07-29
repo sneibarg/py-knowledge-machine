@@ -21,7 +21,7 @@ class CycLServerAgent:
             return input_tag['value']
         raise ValueError("Uniquifier code not found in the page.")
 
-    def create_constant(self, name):
+    def create_constant(self, name) -> dict:
         create_url = self.base_url + "cg?cb-create"
         uniquifier = self._get_uniquifier_code(create_url)
         payload = update_payload(cb_handle_create, uniquifier=uniquifier, name=name)
@@ -39,7 +39,7 @@ class CycLServerAgent:
             'recent_constants': recent_constants
         }
 
-    def assert_sentence(self, sentence, **kwargs):
+    def assert_sentence(self, sentence, **kwargs) -> dict:
         assert_url = self.base_url + "cg?cb-assert"
         uniquifier = self._get_uniquifier_code(assert_url)
         payload = update_payload(cb_handle_assert.copy(), sentence=sentence, uniquifier=uniquifier, **kwargs)
@@ -57,7 +57,7 @@ class CycLServerAgent:
             'recent_assertions': recent_assertions
         }
 
-    def query_sentence(self, sentence, mt_monad=None, **kwargs):
+    def query_sentence(self, sentence, mt_monad=None, **kwargs) -> dict:
         """
         Execute a CycL query and fetch all answers, continuing if necessary.
 
@@ -140,13 +140,6 @@ class CycLServerAgent:
                     break
                 time.sleep(1)
 
-        seen = set()
-        unique_answers = []
-        for ans in all_answers:
-            if ans['binding'] not in seen:
-                seen.add(ans['binding'])
-                unique_answers.append(ans)
-
         pretty_output = f"Query: {sentence}\nMt: {mt}\nStatus: {status}\n\nAnswers ({len(answer_dict.items())}):\n"
         for ans in sorted(answer_dict.items()):
             if ans in answer_dict:
@@ -164,7 +157,7 @@ class CycLServerAgent:
             'el_query': el_query
         }
 
-    def get_all_inference_answers(self, problem_store, inference):
+    def get_all_inference_answers(self, problem_store, inference) -> dict:
         all_answers_url = self.base_url + f"cg?cb-all-inference-answers&{problem_store}&{inference}"
         all_answers_response = self.session.get(all_answers_url)
         if all_answers_response.status_code != 200:
