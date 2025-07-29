@@ -20,7 +20,7 @@ nlp_sentiment = "/sentiment"
 nlp_coref = "/coref"
 nlp_tokenize = "/tokenize"
 nlp_api_url = "http://dragon:9081/nlp"
-mistral_api_url = "http://dragon:11435/api/generate"
+mistral_api_url = "http://localhost:11435/api/generate"
 url_prompt = ("I am your automated ontology editor, and I am reviewing a Uniform Resource Locator."
               "I will generate a one sentence response describing the URL. The URL is: ")
 ontologist_prompt = ("I am your automated ontology editor, and I am reviewing data step by step "
@@ -34,7 +34,7 @@ worker_logger = None
 
 
 class DatasetProcessor:
-    def __init__(self, parent_logger, max_shots):
+    def __init__(self, parent_logger, max_shots=10):
         self.logger = parent_logger
         self.api = HfApi()
         self.repo_id = None
