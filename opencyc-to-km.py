@@ -10,7 +10,7 @@ from multiprocessing import Pool
 from processor.owl.OWLGraphProcessor import OWLGraphProcessor
 from service.KMService import KMSyntaxService
 from service.LoggingService import LoggingService
-from service.OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, OpenCycService
+from service.OpenCycService import CYC_ANNOT_LABEL, CYC_BASES, OpenServerCycService
 
 host = "dragon:3602"
 num_processes = int(os.cpu_count() - 1)
@@ -72,7 +72,7 @@ def main():
     if args.debug:
         logger.setLevel(logging.DEBUG)
 
-    open_cyc_service = OpenCycService(host, logger)
+    open_cyc_service = OpenServerCycService(host, logger)
     if not os.path.exists(open_cyc_service.file):
         logger.error("OWL file not found at %s.", open_cyc_service.file)
         sys.exit(1)

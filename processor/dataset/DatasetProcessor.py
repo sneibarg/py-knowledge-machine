@@ -9,12 +9,17 @@ from multiprocessing import Pool
 from typing import List, Tuple, Optional
 from huggingface_hub import HfApi
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-
 from service import get_session
 from service.HuggingFaceDatasetService import HuggingFaceDatasetService
 from service.LoggingService import LoggingService
 
-nlp_api_url = "http://dragon:9081/nlp/relations"
+nlp_openie_relations = "/openie-relations"
+nlp_relations = "/relations"
+nlp_ner = "/ner"
+nlp_sentiment = "/sentiment"
+nlp_coref = "/coref"
+nlp_tokenize = "/tokenize"
+nlp_api_url = "http://dragon:9081/nlp"
 mistral_api_url = "http://dragon:11435/api/generate"
 url_prompt = ("I am your automated ontology editor, and I am reviewing a Uniform Resource Locator."
               "I will generate a one sentence response describing the URL. The URL is: ")
@@ -45,26 +50,12 @@ class DatasetProcessor:
         self.num_procs = 1
         self.max_shots = max_shots
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((requests.exceptions.ConnectionError,
-                                       requests.exceptions.Timeout,
-                                       requests.exceptions.HTTPError)),
-        before_sleep=lambda retry_state: logger.debug(
-            f"Retrying stanford_relations (attempt {retry_state.attempt_number}) after {retry_state.idle_for}s"
-        )
-    )
-    def stanford_relations(self, data: str) -> dict:
+    def _nlp_post_request(self, url: str, data: str) -> dict:
         response = None
         headers = {'Content-Type': 'application/json'}
-        if not isinstance(data, str):
-            self.logger.error(f"Invalid input type for stanford_relations: {type(data)}")
-            return {}
-
         try:
             response = self.session.post(
-                nlp_api_url,
+                url,
                 data=data.encode('utf-8', errors='replace'),
                 headers=headers,
                 timeout=(120, 360)
@@ -75,22 +66,22 @@ class DatasetProcessor:
             self.logger.error(f"Invalid JSON from NLP API: {jde}")
             raise ValueError("NLP API returned malformed JSON") from jde
         except requests.exceptions.Timeout as e:
-            self.logger.error(f"Timeout error contacting {nlp_api_url}: {e}")
+            self.logger.error(f"Timeout error contacting {url}: {e}")
             raise
         except requests.exceptions.ConnectionError as e:
-            self.logger.error(f"Connection error contacting {nlp_api_url}: {e}")
+            self.logger.error(f"Connection error contacting {url}: {e}")
             raise
         except requests.exceptions.HTTPError as e:
             if response.status_code == 429:
-                self.logger.error(f"Rate limit exceeded for {nlp_api_url}: {e}")
+                self.logger.error(f"Rate limit exceeded for {url}: {e}")
             elif response.status_code >= 500:
-                self.logger.error(f"Server error from {nlp_api_url} (status {response.status_code}): {e}")
+                self.logger.error(f"Server error from {url} (status {response.status_code}): {e}")
                 raise
             else:
-                self.logger.error(f"HTTP error from {nlp_api_url} (status {response.status_code}): {e}")
+                self.logger.error(f"HTTP error from {url} (status {response.status_code}): {e}")
             return {}
         except Exception as e:
-            self.logger.error(f"Unexpected error in stanford_relations: {e}")
+            self.logger.error(f"Unexpected error in NLP request to {url}: {e}")
             return {}
         finally:
             time.sleep(0.1)
@@ -100,10 +91,76 @@ class DatasetProcessor:
         wait=wait_exponential(multiplier=1, min=2, max=10),
         retry=retry_if_exception_type((requests.exceptions.ConnectionError,
                                        requests.exceptions.Timeout,
-                                       requests.exceptions.HTTPError)),
-        before_sleep=lambda retry_state: logger.debug(
-            f"Retrying mistral_one_shot (attempt {retry_state.attempt_number}) after {retry_state.idle_for}s"
-        )
+                                       requests.exceptions.HTTPError))
+    )
+    def stanford_relations(self, data: str, openie=False) -> dict:
+        if not isinstance(data, str):
+            self.logger.error(f"Invalid input type for stanford_relations: {type(data)}")
+            return {}
+        if openie:
+            url = str(nlp_api_url + nlp_openie_relations)
+        else:
+            url = str(nlp_api_url + nlp_relations)
+        return self._nlp_post_request(url, data)
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((requests.exceptions.ConnectionError,
+                                       requests.exceptions.Timeout,
+                                       requests.exceptions.HTTPError))
+    )
+    def stanford_ner(self, data: str) -> dict:
+        if not isinstance(data, str):
+            self.logger.error(f"Invalid input type for stanford_ner: {type(data)}")
+            return {}
+        return self._nlp_post_request(str(nlp_api_url + nlp_ner), data)
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((requests.exceptions.ConnectionError,
+                                       requests.exceptions.Timeout,
+                                       requests.exceptions.HTTPError))
+    )
+    def stanford_sentiment(self, data: str) -> dict:
+        if not isinstance(data, str):
+            self.logger.error(f"Invalid input type for stanford_sentiment: {type(data)}")
+            return {}
+        return self._nlp_post_request(str(nlp_api_url + nlp_sentiment), data)
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((requests.exceptions.ConnectionError,
+                                       requests.exceptions.Timeout,
+                                       requests.exceptions.HTTPError))
+    )
+    def stanford_coref(self, data: str) -> dict:
+        if not isinstance(data, str):
+            self.logger.error(f"Invalid input type for stanford_coref: {type(data)}")
+            return {}
+        return self._nlp_post_request(str(nlp_api_url + nlp_coref), data)
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((requests.exceptions.ConnectionError,
+                                       requests.exceptions.Timeout,
+                                       requests.exceptions.HTTPError))
+    )
+    def stanford_tokenize(self, data: str) -> dict:
+        if not isinstance(data, str):
+            self.logger.error(f"Invalid input type for stanford_tokenize: {type(data)}")
+            return {}
+        return self._nlp_post_request(str(nlp_api_url + nlp_tokenize), data)
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception_type((requests.exceptions.ConnectionError,
+                                       requests.exceptions.Timeout,
+                                       requests.exceptions.HTTPError))
     )
     def mistral_one_shot(self, text: str, base_prompt: str) -> Optional[str]:
         response = None
