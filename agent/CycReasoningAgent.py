@@ -43,13 +43,20 @@ class CycReasoningAgent:
             if not os.path.exists(mt_dir):
                 os.makedirs(mt_dir)
             filename = os.path.join(mt_dir, f"{mt}.gemma-analysis.txt")
+            if os.path.exists(filename):
+                print(f"Skipping {mt} due to pre-existing file.")
+                continue
             result = self.ollama_service.one_shot(ollama_model, mt, base_prompt)
             if result is None:
                 result = "None"
             elapsed_time = time.time() - start_time
-            with open(filename, 'w') as fh:
-                fh.write(result)
-                fh.write(f"-------\n")
-                fh.write(f"Inference for microtheory took {elapsed_time} seconds.")
-            fh.close()
+            try:
+                with open(filename, 'w') as fh:
+                    fh.write(result)
+                    fh.write(f"-------\n")
+                    fh.write(f"Inference for microtheory took {elapsed_time} seconds.")
+                    fh.close()
+            except Exception as fe:
+                print(f"Exception {fe} caught while processing {str(result)}")
+                continue
 
