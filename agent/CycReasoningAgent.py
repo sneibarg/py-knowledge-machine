@@ -50,11 +50,10 @@ class CycReasoningAgent:
             if result is None:
                 result = "None"
             elapsed_time = time.time() - start_time
+            self.logger.info(f"Inference for microtheory took {elapsed_time} seconds.")
             try:
                 with open(filename, 'w') as fh:
                     fh.write(result)
-                    fh.write(f"-------\n")
-                    fh.write(f"Inference for microtheory took {elapsed_time} seconds.")
                     fh.close()
             except Exception as fe:
                 self.logger.error(f"Exception {fe} caught while processing {str(result)}")
