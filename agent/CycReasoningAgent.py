@@ -2,14 +2,14 @@ import logging
 import os
 import time
 
-from agent.CycLServerAgent import CycLServerAgent
+from service.CycLService import CycLService
 from service.OllamaService import OllamaService
 
 ollama_model = "gemma3n:latest"
 
 
 class CycReasoningAgent:
-    def __init__(self, ollama_service: OllamaService, cyc_server_agent: CycLServerAgent, logger: logging.Logger):
+    def __init__(self, ollama_service: OllamaService, cyc_server_agent: CycLService, logger: logging.Logger):
         self.logger = logger
         self.cyc_server_agent = cyc_server_agent
         self.ollama_service = ollama_service

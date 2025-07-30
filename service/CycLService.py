@@ -2,11 +2,11 @@ import requests
 import urllib.parse
 import time
 
-from agent import cb_handle_query, update_payload, cb_handle_create, cb_handle_assert, cb_continue_query
+from service import cb_handle_query, update_cyc_payload, cb_handle_create, cb_handle_assert, cb_continue_query
 from bs4 import BeautifulSoup
 
 
-class CycLServerAgent:
+class CycLService:
     def __init__(self, host='dragon:3602'):
         self.base_url = f"http://{host}/cgi-bin/"
         self.session = requests.Session()
@@ -24,7 +24,7 @@ class CycLServerAgent:
     def create_constant(self, name) -> dict:
         create_url = self.base_url + "cg?cb-create"
         uniquifier = self._get_uniquifier_code(create_url)
-        payload = update_payload(cb_handle_create, uniquifier=uniquifier, name=name)
+        payload = update_cyc_payload(cb_handle_create, uniquifier=uniquifier, name=name)
         create_response = self.session.post(self.base_url + "cg", data=payload)
         if create_response.status_code != 200:
             raise ValueError("Failed to create constant.")
@@ -42,7 +42,7 @@ class CycLServerAgent:
     def assert_sentence(self, sentence, **kwargs) -> dict:
         assert_url = self.base_url + "cg?cb-assert"
         uniquifier = self._get_uniquifier_code(assert_url)
-        payload = update_payload(cb_handle_assert.copy(), sentence=sentence, uniquifier=uniquifier, **kwargs)
+        payload = update_cyc_payload(cb_handle_assert.copy(), sentence=sentence, uniquifier=uniquifier, **kwargs)
         assert_response = self.session.post(self.base_url + "cg", data=payload)
         if assert_response.status_code != 200:
             raise ValueError("Failed to assert sentence.")
@@ -71,7 +71,7 @@ class CycLServerAgent:
         """
         query_url = self.base_url + "cg?cb-query"
         uniquifier = self._get_uniquifier_code(query_url)
-        payload = update_payload(cb_handle_query, sentence, mt_monad, uniquifier, **kwargs)
+        payload = update_cyc_payload(cb_handle_query, sentence, mt_monad, uniquifier, **kwargs)
         query_response = self.session.post(self.base_url + "cg", data=payload)
         if query_response.status_code != 200:
             raise ValueError("Failed to start query.")

@@ -2,7 +2,7 @@ import os
 import re
 import rdflib
 from rdflib import URIRef, Namespace
-from agent.CycLServerAgent import CycLServerAgent
+from service.CycLService import CycLService
 
 TYPE_PREDICATES = [
     rdflib.RDF.type,
@@ -24,7 +24,7 @@ FIXED_OWL_FILE = os.path.join(BASE_DIR, "runtime/opencyc-owl/opencyc-2012-05-10_
 TINY_OWL_FILE = os.path.join(BASE_DIR, "runtime/opencyc-owl/opencyc-owl-tiny.owl")
 
 
-class OpenCycService(CycLServerAgent):
+class OpenCycService(CycLService):
     def __init__(self, host, logger):
         super().__init__(host)
         self.logger = logger
