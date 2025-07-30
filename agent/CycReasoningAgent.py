@@ -38,7 +38,6 @@ class CycReasoningAgent:
                        "Given a microtheory name, I will provide a concise and accurate answer describing the microtheory name."
                        "The given microtheory is: ")
         for mt in self.microtheories:
-            start_time = time.time()
             mt_dir = os.path.join(os.getcwd(), "runtime", "microtheories", mt)
             if not os.path.exists(mt_dir):
                 os.makedirs(mt_dir)
@@ -46,10 +45,11 @@ class CycReasoningAgent:
             if os.path.exists(filename):
                 self.logger.info(f"Skipping {mt} due to pre-existing file.")
                 continue
+            start_time = time.time()
             result = self.ollama_service.one_shot(ollama_model, mt, base_prompt)
+            elapsed_time = time.time() - start_time
             if result is None:
                 result = "None"
-            elapsed_time = time.time() - start_time
             self.logger.info(f"Inference for microtheory took {elapsed_time} seconds.")
             try:
                 with open(filename, 'w') as fh:
