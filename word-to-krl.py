@@ -1,8 +1,8 @@
 import os
 import sys
 import requests
+import time
 
-from processor.dataset.DatasetProcessor import DatasetProcessor
 from service.LoggingService import LoggingService
 from service.NlpService import NlpService
 from service.OllamaService import OllamaService
@@ -23,11 +23,11 @@ open_cyc_service = OpenCycService(cyc_host, logger)
 ollama_service = OllamaService(ollama_api_url, logger)
 nlp_service = NlpService(nlp_api_url, logger)
 cyc_reasoning_agent = CycReasoningAgent(ollama_service, open_cyc_service, logger)
-dataset_processor = DatasetProcessor(nlp_service, ollama_service, logger, 3)
 synsets = requests.get(wordnet_api, params=payload).json()['synsets']
+start_time = time.time()
 cyc_reasoning_agent.gemma3n_analysis()
-
-sys.exit(1)
+print(f"Gemma3n analysis of microtheories took {int(time.time() - start_time)} seconds.")
+sys.exit(0)
 
 
 

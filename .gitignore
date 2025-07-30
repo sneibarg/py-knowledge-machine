@@ -4,8 +4,10 @@ __pycache__/*
 *.py[cod]
 *$py.class
 
-runtime/opencyc-owl/
 runtime/logs/
+runtime/owl/
+runtime/owl/cyc/
+runtime/microtheories/
 
 # C extensions
 *.so
