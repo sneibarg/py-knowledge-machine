@@ -1,0 +1,6 @@
+GKEFormulaTemplatesMt is a microtheory focused on providing templates for expressing general knowledge facts using a specific formula structure. It likely aims to standardize how facts are represented to facilitate automated reasoning and consistency checking within the OpenCyc platform. The "Mt" likely signifies a particular methodology or version of this template-based approach.
+
+
+
+-------
+Inference for microtheory took 2.442387342453003 seconds.

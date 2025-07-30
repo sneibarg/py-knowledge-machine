@@ -1,0 +1,6 @@
+The DBPediaOntologyBridgingMt microtheory is designed to integrate and reason over knowledge residing in both DBPedia and the core OpenCyc ontology. It facilitates reasoning by linking concepts and entities between these two knowledge bases, leveraging the strengths of each to create a more comprehensive and interconnected knowledge representation. Essentially, it bridges the gap between DBPedia's structured data and OpenCyc's more abstract, reasoning-oriented ontology.
+
+
+
+-------
+Inference for microtheory took 3.271824598312378 seconds.

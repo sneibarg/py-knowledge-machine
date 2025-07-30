@@ -1,0 +1,10 @@
+Okay, I understand. You're reviewing the OpenCyc microtheories and I'll provide concise and accurate descriptions. 
+
+Here's the description of the microtheory **GeneralEnglishMt**:
+
+**GeneralEnglishMt** is a microtheory designed to facilitate reasoning over natural language expressed in standard English. It aims to map English sentences and phrases to logical representations, enabling OpenCyc to understand and reason about information conveyed in everyday language. It's a crucial component for bridging the gap between structured knowledge and unstructured text.
+
+
+
+-------
+Inference for microtheory took 3.834407091140747 seconds.

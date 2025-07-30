@@ -1,0 +1,10 @@
+Okay, I understand. You're reviewing the `NeuroscienceQueryMt` microtheory, which is part of OpenCyc. 
+
+Here's a concise and accurate description of the `NeuroscienceQueryMt` microtheory:
+
+**NeuroscienceQueryMt** is designed to handle queries related to the nervous system, including brain structure, function, neural processes, and neurological disorders. It aims to provide a framework for reasoning about neuroscientific concepts and relationships, enabling answers to questions about how the nervous system works and how it is affected by disease. It likely incorporates concepts from neuroscience, biology, psychology, and medicine.
+
+
+
+-------
+Inference for microtheory took 4.484860897064209 seconds.

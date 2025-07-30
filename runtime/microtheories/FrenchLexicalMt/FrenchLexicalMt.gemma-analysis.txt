@@ -1,0 +1,10 @@
+Okay, I understand. You're an automated editor reviewing OpenCyc's Microtheories. You'll provide concise and accurate descriptions.
+
+Here's the description of the microtheory "FrencchLexicalMt":
+
+**FrencchLexicalMt:** This microtheory likely deals with the lexical semantics of the French language. It probably contains rules and knowledge related to French words, their meanings, and how they relate to each other. "Mt" likely stands for "Meaning Theory," indicating a focus on the meaning of words and phrases within the French lexicon. It would be used for reasoning about French vocabulary and semantic relationships.
+
+
+
+-------
+Inference for microtheory took 4.96039080619812 seconds.

@@ -1,0 +1,10 @@
+Okay, I understand. You're reviewing the OpenCyc microtheories and I'll provide concise, accurate descriptions. 
+
+Here's the description of the microtheory `EnglishMt`:
+
+**EnglishMt** represents the microtheory for **English Morphology**. It focuses on the rules and principles governing the structure of words in the English language, including how words are formed from smaller units (morphemes) and how these units combine to create meaning. It covers aspects like prefixes, suffixes, inflections, and word classes.
+
+
+
+-------
+Inference for microtheory took 3.8436338901519775 seconds.

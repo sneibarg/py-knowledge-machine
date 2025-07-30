@@ -1,0 +1,6 @@
+AmericanEnglishMt refers to the microtheory dedicated to organizing knowledge specific to the American English language. It aims to capture linguistic features, idioms, cultural nuances, and grammatical rules prevalent in American English to facilitate reasoning and understanding within that linguistic context. Essentially, it's a structured representation of how American English works.
+
+
+
+-------
+Inference for microtheory took 2.3423993587493896 seconds.

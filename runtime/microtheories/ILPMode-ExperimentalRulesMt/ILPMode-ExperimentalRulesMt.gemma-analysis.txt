@@ -1,0 +1,6 @@
+ILPMode-ExperimentalRulesMt is a microtheory in OpenCyc focused on **experimental methods and rules**. It likely contains knowledge about how scientific experiments are designed, conducted, and analyzed, including principles of experimental design, statistical analysis, and the interpretation of experimental results. It aims to formalize the logical relationships involved in performing and understanding experiments.
+
+
+
+-------
+Inference for microtheory took 2.6246895790100098 seconds.

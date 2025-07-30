@@ -1,0 +1,15 @@
+The microtheory "DocumentIngesterReificationTemplateMt" likely describes a process or template within OpenCyc for ingesting documents and transforming their content into a structured, reified representation. 
+
+Here's a breakdown of the likely components:
+
+* **DocumentIngester:**  Indicates the microtheory deals with the process of taking documents as input.
+* **Reification:** Refers to the process of making abstract concepts concrete by representing them as objects in a knowledge representation system (like OpenCyc).  This involves assigning properties and relationships to entities extracted from the document.
+* **Template:** Suggests a pre-defined structure or set of rules used to guide the reification process.
+* **Mt:**  This is likely a suffix indicating a specific version or modification of the template.
+
+**In essence, this microtheory likely outlines how to take unstructured text from documents, extract meaningful information, and represent that information as structured knowledge within OpenCyc.** It provides a framework for automatically building knowledge from textual sources.
+
+
+
+-------
+Inference for microtheory took 7.2909626960754395 seconds.

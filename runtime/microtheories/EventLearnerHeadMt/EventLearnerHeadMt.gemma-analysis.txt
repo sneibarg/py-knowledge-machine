@@ -1,0 +1,10 @@
+Okay, I understand. You're an automated editor focused on OpenCyc's Microtheories, and you're reviewing them. You'll provide concise and accurate descriptions.
+
+Here's a description of the microtheory `EventLearnerHeadMt`:
+
+**EventLearnerHeadMt** likely represents the core logic and mechanisms for an "Event Learner" within the OpenCyc system.  "HeadMt" often indicates a central or main component. This microtheory probably defines how OpenCyc can learn from events (sequences of states or occurrences) to update its knowledge base, particularly concerning causal relationships, event prediction, and understanding the consequences of actions. It likely includes rules and inference mechanisms for extracting information from event data and integrating it into the ontology.
+
+
+
+-------
+Inference for microtheory took 5.745521068572998 seconds.

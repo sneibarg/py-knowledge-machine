@@ -1,0 +1,10 @@
+Okay, I understand. You're reviewing Microtheories within the OpenCyc platform and aiming to provide concise, accurate descriptions. 
+
+Here's a description of the microtheory `DecisionSupportPhaseIIQueryMt`:
+
+**DecisionSupportPhaseIIQueryMt:** This microtheory likely focuses on the query phase within a decision support system, specifically during a second iteration (Phase II) of a query process. It probably deals with formulating, refining, and executing queries to retrieve relevant information to aid in decision-making. It likely includes concepts related to query optimization, user interaction for query refinement, and managing the query process itself.
+
+
+
+-------
+Inference for microtheory took 4.730313777923584 seconds.

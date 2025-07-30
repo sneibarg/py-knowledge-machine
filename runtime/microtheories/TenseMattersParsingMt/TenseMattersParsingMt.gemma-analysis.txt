@@ -1,0 +1,10 @@
+Okay, I understand. You're reviewing the OpenCyc microtheories, and I'm to provide a concise and accurate description given a microtheory name. 
+
+Here's a description of the microtheory "TenseMattersParsingMt":
+
+**TenseMattersParsingMt** focuses on the parsing and understanding of tense (time) in natural language. It aims to represent how tense affects the meaning of events and actions, enabling reasoning about temporal relationships, event sequences, and the passage of time. It likely includes rules and concepts for identifying tense markers (e.g., "past," "present," "future"), determining the temporal relationship between events, and resolving ambiguities related to tense.
+
+
+
+-------
+Inference for microtheory took 5.6698596477508545 seconds.

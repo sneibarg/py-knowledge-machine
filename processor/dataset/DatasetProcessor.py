@@ -1,26 +1,18 @@
 import json
 import logging
 import os
-import time
-import requests
-import requests.exceptions
 
 from multiprocessing import Pool
 from typing import List, Tuple, Optional
 from huggingface_hub import HfApi
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from service import get_session
 from service.HuggingFaceDatasetService import HuggingFaceDatasetService
 from service.LoggingService import LoggingService
+from service.NlpService import NlpService
+from service.OllamaService import OllamaService
 
-nlp_openie_relations = "/openie-relations"
-nlp_relations = "/relations"
-nlp_ner = "/ner"
-nlp_sentiment = "/sentiment"
-nlp_coref = "/coref"
-nlp_tokenize = "/tokenize"
-nlp_api_url = "http://dragon:9081/nlp"
-mistral_api_url = "http://localhost:11435/api/generate"
+
+ollama_api_url = "http://localhost:11435/api/generate"
+ollama_model = "gemma3n:latest"
 url_prompt = ("I am your automated ontology editor, and I am reviewing a Uniform Resource Locator."
               "I will generate a one sentence response describing the URL. The URL is: ")
 ontologist_prompt = ("I am your automated ontology editor, and I am reviewing data step by step "
@@ -34,7 +26,9 @@ worker_logger = None
 
 
 class DatasetProcessor:
-    def __init__(self, parent_logger, max_shots=10):
+    def __init__(self, nlp_service: NlpService, ollama_service: OllamaService, parent_logger: logging.Logger, max_shots=10):
+        self.ollama_service = ollama_service
+        self.nlp_service = nlp_service
         self.logger = parent_logger
         self.api = HfApi()
         self.repo_id = None
@@ -45,180 +39,16 @@ class DatasetProcessor:
         self.summarize = False
         self.rank = False
         self.debug = False
-        self.session = get_session(max_retries=3)
         self.files = []
         self.num_procs = 1
         self.max_shots = max_shots
-
-    def _nlp_post_request(self, url: str, data: str) -> dict:
-        response = None
-        headers = {'Content-Type': 'application/json'}
-        try:
-            response = self.session.post(
-                url,
-                data=data.encode('utf-8', errors='replace'),
-                headers=headers,
-                timeout=(120, 360)
-            )
-            response.raise_for_status()
-            return response.json()
-        except json.JSONDecodeError as jde:
-            self.logger.error(f"Invalid JSON from NLP API: {jde}")
-            raise ValueError("NLP API returned malformed JSON") from jde
-        except requests.exceptions.Timeout as e:
-            self.logger.error(f"Timeout error contacting {url}: {e}")
-            raise
-        except requests.exceptions.ConnectionError as e:
-            self.logger.error(f"Connection error contacting {url}: {e}")
-            raise
-        except requests.exceptions.HTTPError as e:
-            if response.status_code == 429:
-                self.logger.error(f"Rate limit exceeded for {url}: {e}")
-            elif response.status_code >= 500:
-                self.logger.error(f"Server error from {url} (status {response.status_code}): {e}")
-                raise
-            else:
-                self.logger.error(f"HTTP error from {url} (status {response.status_code}): {e}")
-            return {}
-        except Exception as e:
-            self.logger.error(f"Unexpected error in NLP request to {url}: {e}")
-            return {}
-        finally:
-            time.sleep(0.1)
-
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((requests.exceptions.ConnectionError,
-                                       requests.exceptions.Timeout,
-                                       requests.exceptions.HTTPError))
-    )
-    def stanford_relations(self, data: str, openie=False) -> dict:
-        if not isinstance(data, str):
-            self.logger.error(f"Invalid input type for stanford_relations: {type(data)}")
-            return {}
-        if openie:
-            url = str(nlp_api_url + nlp_openie_relations)
-        else:
-            url = str(nlp_api_url + nlp_relations)
-        return self._nlp_post_request(url, data)
-
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((requests.exceptions.ConnectionError,
-                                       requests.exceptions.Timeout,
-                                       requests.exceptions.HTTPError))
-    )
-    def stanford_ner(self, data: str) -> dict:
-        if not isinstance(data, str):
-            self.logger.error(f"Invalid input type for stanford_ner: {type(data)}")
-            return {}
-        return self._nlp_post_request(str(nlp_api_url + nlp_ner), data)
-
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((requests.exceptions.ConnectionError,
-                                       requests.exceptions.Timeout,
-                                       requests.exceptions.HTTPError))
-    )
-    def stanford_sentiment(self, data: str) -> dict:
-        if not isinstance(data, str):
-            self.logger.error(f"Invalid input type for stanford_sentiment: {type(data)}")
-            return {}
-        return self._nlp_post_request(str(nlp_api_url + nlp_sentiment), data)
-
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((requests.exceptions.ConnectionError,
-                                       requests.exceptions.Timeout,
-                                       requests.exceptions.HTTPError))
-    )
-    def stanford_coref(self, data: str) -> dict:
-        if not isinstance(data, str):
-            self.logger.error(f"Invalid input type for stanford_coref: {type(data)}")
-            return {}
-        return self._nlp_post_request(str(nlp_api_url + nlp_coref), data)
-
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((requests.exceptions.ConnectionError,
-                                       requests.exceptions.Timeout,
-                                       requests.exceptions.HTTPError))
-    )
-    def stanford_tokenize(self, data: str) -> dict:
-        if not isinstance(data, str):
-            self.logger.error(f"Invalid input type for stanford_tokenize: {type(data)}")
-            return {}
-        return self._nlp_post_request(str(nlp_api_url + nlp_tokenize), data)
-
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((requests.exceptions.ConnectionError,
-                                       requests.exceptions.Timeout,
-                                       requests.exceptions.HTTPError))
-    )
-    def mistral_one_shot(self, text: str, base_prompt: str) -> Optional[str]:
-        response = None
-        safe_text = text.encode('utf-8', errors='replace').decode('utf-8') if text else ""
-        full_prompt = f"<s>[INST] {base_prompt} {safe_text} [/INST]"
-        payload = {
-            "model": "mistral:7b-instruct-q4_0",
-            "prompt": full_prompt,
-            "stream": False
-        }
-
-        try:
-            start_time = time.time()
-            response = self.session.post(
-                mistral_api_url,
-                json=payload,
-                timeout=(120, 360)
-            )
-            response.raise_for_status()
-            end_time = time.time()
-            duration = end_time - start_time
-            self.logger.info(f"REST call to {mistral_api_url} took {duration:.3f} seconds")
-            try:
-                json_response = response.json()
-                if 'response' not in json_response:
-                    worker_logger.error(f"Missing 'response' key in JSON from {mistral_api_url}")
-                    return None
-                return json_response['response']
-            except json.JSONDecodeError as e:
-                worker_logger.error(f"Invalid JSON response from {mistral_api_url}: {e}")
-                return None
-        except requests.exceptions.Timeout as e:
-            self.logger.error(f"Timeout error contacting {mistral_api_url}: {e}")
-            raise
-        except requests.exceptions.ConnectionError as e:
-            self.logger.error(f"Connection error contacting {mistral_api_url}: {e}")
-            raise
-        except requests.exceptions.HTTPError as e:
-            if response.status_code == 429:
-                self.logger.error(f"Rate limit exceeded for {mistral_api_url}: {e}")
-            elif response.status_code >= 500:
-                self.logger.error(f"Server error from {mistral_api_url} (status {response.status_code}): {e}")
-                raise
-            else:
-                self.logger.error(f"HTTP error from {mistral_api_url} (status {response.status_code}): {e}")
-            return None
-        except Exception as e:
-            self.logger.error(f"Unexpected error in mistral_one_shot: {e}")
-            return None
-        finally:
-            time.sleep(0.1)
 
     def summarize_text(self, text: str, rank: bool, key_terms: Optional[set] = None) -> tuple[Optional[str], dict]:
         if rank and key_terms is not None:
             summaries = []
             for shot in range(self.max_shots):
-                summary, relations = self.generate_one_shot(text, ontologist_prompt)
-                relations = self.stanford_relations(summary)
+                summary, relations = self.combined_one_shot(ollama_model, text, ontologist_prompt)
+                relations = self.nlp_service.stanford_relations(summary)
                 summary_nouns = set()
                 if "parseTree" in str(relations):
                     for sentence in relations['sentences']:
@@ -236,15 +66,15 @@ class DatasetProcessor:
             for i, (summary, score) in enumerate(summaries, 1):
                 worker_logger.info(f"Rank {i} (Score: {score}): {summary}")
         else:
-            return self.generate_one_shot(text, ontologist_prompt)
+            return self.combined_one_shot(ollama_model, text, ontologist_prompt)
 
     def classify_url(self, url: str, prompt: str) -> tuple[Optional[str], dict]:
-        return self.generate_one_shot(url, prompt)
+        return self.combined_one_shot(ollama_model, url, prompt)
 
-    def generate_one_shot(self, text: str, prompt: str) -> tuple[Optional[str], dict]:
-        mistral_response = self.mistral_one_shot(text, prompt)
-        relations = self.stanford_relations(mistral_response)
-        return mistral_response, relations
+    def combined_one_shot(self, model: str, text: str, prompt: str) -> tuple[Optional[str], dict]:
+        response = self.ollama_service.one_shot(model, text, prompt)
+        relations = self.nlp_service.stanford_relations(response)
+        return response, relations
 
     def process_record(self, record: str,
                        print_contents: bool,
