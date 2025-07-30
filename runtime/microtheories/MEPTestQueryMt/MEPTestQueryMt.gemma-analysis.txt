@@ -1,6 +1,0 @@
-MEPTestQueryMt is a microtheory used for testing the functionality and correctness of queries within the MepTest system, likely related to querying and reasoning over the OpenCyc knowledge base. It's designed to help ensure queries produce expected and valid results. Essentially, it's a test suite for query mechanisms.
-
-
-
--------
-Inference for microtheory took 2.470660448074341 seconds.

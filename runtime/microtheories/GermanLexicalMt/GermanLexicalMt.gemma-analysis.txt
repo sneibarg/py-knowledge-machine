@@ -1,6 +1,0 @@
-GermanLexicalMt is a microtheory in OpenCyc focused on the lexical semantics of the German language. It aims to represent and reason about the meanings of German words, including their relationships, properties, and how they combine to form larger meanings. It likely incorporates information about German morphology, syntax, and pragmatics to achieve this. Essentially, it's a structured knowledge representation of German vocabulary and its semantic implications.
-
-
-
--------
-Inference for microtheory took 3.149430513381958 seconds.

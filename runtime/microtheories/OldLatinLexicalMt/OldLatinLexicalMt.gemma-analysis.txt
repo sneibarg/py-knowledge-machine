@@ -1,6 +1,0 @@
-OldLatinLexicalMt is a microtheory in OpenCyc focused on the vocabulary of Old Latin. It aims to represent and reason about the meanings and relationships of words in Old Latin, drawing on historical linguistic data and etymological information. It would include information on word forms, senses, and how they relate to each other across time and different texts. Essentially, it's a structured knowledge base for Old Latin vocabulary.
-
-
-
--------
-Inference for microtheory took 3.1662933826446533 seconds.

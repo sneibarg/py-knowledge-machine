@@ -1,8 +1,0 @@
-Okay, I understand. You're reviewing the `HorusArtifactOntologyMappingMt` microtheory within the OpenCyc platform.  Based on the name, here's a concise and accurate description:
-
-**HorusArtifactOntologyMappingMt** likely represents a microtheory focused on mapping concepts related to artifacts associated with the Egyptian god Horus. It aims to connect and organize knowledge about Horus's possessions, symbols, and the cultural significance of these artifacts, enabling reasoning about them within the larger OpenCyc knowledge base. The "Mt" likely indicates it's a microtheory.
-
-
-
--------
-Inference for microtheory took 4.289114952087402 seconds.

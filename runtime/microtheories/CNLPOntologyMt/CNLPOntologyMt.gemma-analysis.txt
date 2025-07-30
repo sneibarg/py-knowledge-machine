@@ -1,6 +1,0 @@
-CNLPOntologyMt is a microtheory focused on **Computational Natural Language Processing (CNLP) and its underlying ontology**. It aims to represent the concepts, relations, and knowledge relevant to understanding and processing human language using computational methods. This includes things like syntax, semantics, pragmatics, and the knowledge bases used in CNLP systems. Essentially, it's a structured way to represent the world as it's understood and used within the field of computational linguistics.
-
-
-
--------
-Inference for microtheory took 3.479177236557007 seconds.

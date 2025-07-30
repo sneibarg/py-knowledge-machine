@@ -1,6 +1,0 @@
-**OilAndGasIndustryMt** is a microtheory designed to represent knowledge specific to the oil and gas industry. It would likely contain concepts related to exploration, extraction, refining, transportation, and the economic and environmental aspects of the oil and gas sector. The goal is to enable reasoning about processes, entities, and relationships within this industry.
-
-
-
--------
-Inference for microtheory took 2.5666983127593994 seconds.

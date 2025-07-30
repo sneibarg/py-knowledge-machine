@@ -1,6 +1,0 @@
-DBPediaQueryMt is a microtheory designed to facilitate reasoning and querying of data stored in DBpedia. It provides a structured way to represent and manipulate information extracted from DBpedia, enabling complex queries and inferences about entities, their properties, and relationships. Essentially, it helps reason *over* the DBpedia knowledge graph.
-
-
-
--------
-Inference for microtheory took 2.571979284286499 seconds.

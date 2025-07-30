@@ -1,6 +1,0 @@
-**FullyIntegratedAURAQueryMt** is a microtheory designed for performing comprehensive and integrated queries using the AURA (Assertion-based Reasoning and Unification for Automated Reasoning) framework. It aims to combine various reasoning techniques and knowledge sources to provide more accurate and complete answers to complex questions. Essentially, it's about building a powerful, unified query mechanism within OpenCyc.
-
-
-
--------
-Inference for microtheory took 2.8393406867980957 seconds.

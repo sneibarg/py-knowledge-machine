@@ -1,6 +1,0 @@
-ILPMode-StreamlinedSpecOrthStrategyMt is a microtheory focused on streamlining the specification and orthography (correct spelling and grammar) of concepts within the Integrated Linguistic Programming (ILP) framework. It aims to improve the clarity, consistency, and computational efficiency of representing knowledge using ILP. Essentially, it's about making ILP knowledge representation more practical and easier to manage.
-
-
-
--------
-Inference for microtheory took 2.9339444637298584 seconds.

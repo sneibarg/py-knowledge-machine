@@ -1,2 +1,0 @@
-The `CanadianEnglishMt` microtheory focuses on the linguistic features of Canadian English. It aims to capture the specific vocabulary, grammar, and pronunciation variations that distinguish Canadian English from other dialects of English. This allows for reasoning about language usage and understanding Canadian English-specific expressions.-------
-Inference for microtheory took 2.1116762161254883 seconds.

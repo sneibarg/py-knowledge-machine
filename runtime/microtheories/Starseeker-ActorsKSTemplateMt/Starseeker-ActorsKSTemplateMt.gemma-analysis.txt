@@ -1,6 +1,0 @@
-Starsweeker-ActorsKSTemplateMt is a microtheory designed to model the behavior and interactions of actors within a "Starsweeker" context. It likely focuses on how actors pursue goals, make decisions, and respond to events within a system where "Starsweeking" is a relevant concept. The "KSTemplate" suggests it uses a knowledge schema (KS) to structure the information about these actors and their actions. Essentially, it's a framework for representing and reasoning about actor behavior in a specific domain.
-
-
-
--------
-Inference for microtheory took 3.814298629760742 seconds.

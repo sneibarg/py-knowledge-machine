@@ -1,6 +1,0 @@
-ProbabilityTest73645Mt is a microtheory designed to handle reasoning related to probability and statistical inference. It likely contains rules and axioms for calculating probabilities, performing Bayesian reasoning, and drawing conclusions from probabilistic data. It's intended to allow OpenCyc to reason about uncertain or incomplete information.
-
-
-
--------
-Inference for microtheory took 2.379281759262085 seconds.

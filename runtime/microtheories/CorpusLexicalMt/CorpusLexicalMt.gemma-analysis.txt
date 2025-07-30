@@ -1,6 +1,0 @@
-CorpusLexicalMt is a microtheory in OpenCyc focused on the lexical aspects of corpora – collections of texts. It aims to represent and reason about the vocabulary, word usage, and distributional properties of words within a corpus. This allows for analysis of how words are used in context and can be used for tasks like word sense disambiguation, lexical semantics, and corpus-based linguistic analysis. Essentially, it's about understanding the vocabulary embedded within a body of text.
-
-
-
--------
-Inference for microtheory took 3.6040444374084473 seconds.

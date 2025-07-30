@@ -1,2 +1,0 @@
-The microtheory "ChristianTrinityMt" represents the Christian doctrine of the Trinity. It describes the belief that God is one substance (essence) existing in three co-equal and distinct persons: Father, Son (Jesus Christ), and Holy Spirit. It focuses on the relationship and unity of these three persons within the concept of God.-------
-Inference for microtheory took 2.8031485080718994 seconds.
