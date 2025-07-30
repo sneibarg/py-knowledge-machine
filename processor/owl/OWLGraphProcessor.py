@@ -5,33 +5,31 @@ import rdflib
 from collections import defaultdict
 from functools import partial
 from rdflib import Literal, URIRef, RDFS, RDF, OWL
-from KMSyntaxGenerator import STANDARD_PREDICATES
-
-BASES = []
-assertions = []
-annotation_label = None
-successfully_sent = None
-failed_assertions = {}
+from service.KMSyntaxService import STANDARD_PREDICATES
 
 
 class OWLGraphProcessor:
-    def __init__(self, parent_logger, owl_file, pool, processing_function, custom_matching_function, args):
-        self.graph = self.load_ontology(parent_logger, owl_file)
-        self.pool = pool
-        self.processing_function = processing_function
-        self.custom_matching_function = custom_matching_function
-        self.args = args
-        self.successfully_sent = successfully_sent
+    def __init__(self, parent_logger, pool, ontology_service, args):
         self.logger = parent_logger.getChild('OWL-Graph-Processor')
+        self.pool = pool
+        self.ontology_service = ontology_service
+        self.args = args
+        self.graph = self.load_ontology()
+        self.successfully_sent = []
 
-    def run(self):
-        remaining_assertions = set(assertions)
+    def run(self, assertion_list) -> int:
+        remaining_assertions = set(assertion_list)
+        failed_assertions = {}
         progress_made = True
+
+        if self.pool is None:
+            self.logger.info("Attempted to invoke run() without a ForkJoinPool.")
+            return 0
 
         while remaining_assertions and progress_made:
             new_remaining = set()
             progress_made = False
-            process_func = partial(self.processing_function, dry_run=self.args.dry_run)
+            process_func = partial(self.ontology_service.preprocess, dry_run=self.args.dry_run)
             results = self.pool.map(process_func, remaining_assertions)
             for assertion, success in zip(remaining_assertions, results):
                 if not success:
@@ -43,10 +41,85 @@ class OWLGraphProcessor:
             remaining_assertions = new_remaining
 
         if remaining_assertions:
-            print(f"Unprocessed assertions: {len(remaining_assertions)}")
-            print(f"Failure reasons: {dict(failed_assertions)}")
+            self.logger.info(f"Unprocessed assertions: {len(remaining_assertions)}")
+            self.logger.info(f"Failure reasons: {dict(failed_assertions)}")
 
         return len(self.successfully_sent)
+
+    def extract_labels_and_ids(self):
+        child_logger = self.logger.getChild('LabelsExtractor')
+        result = {}
+        for subject in self.graph.subjects():
+            label = next((str(obj) for obj in self.graph.objects(subject, rdflib.RDFS.label) if isinstance(obj, rdflib.Literal)), None)
+            external_id = next((str(obj) for obj in self.graph.objects(subject, rdflib.OWL.sameAs) if isinstance(obj, rdflib.URIRef)), None)
+            if label or external_id:
+                result[subject] = {'label': label, 'external_id': external_id}
+        child_logger.info(f"Extracted labels/IDs for {len(result)} resources.")
+        return result
+
+    def get_classes_via_sparql(self):
+        query = """
+        SELECT ?s WHERE {
+            ?s rdf:type owl:Class .
+        }
+        """
+        try:
+            return [row.s for row in self.graph.query(query)]
+        except Exception as e:
+            self.logger.error("SPARQL query for classes failed: %s", str(e))
+            raise
+
+    def get_properties_via_sparql(self):
+        query = """
+        SELECT ?s WHERE {
+            ?s rdf:type owl:ObjectProperty .
+        }
+        """
+        try:
+            return [row.s for row in self.graph.query(query)]
+        except Exception as e:
+            self.logger.error("SPARQL query for properties failed: %s", str(e))
+            raise
+
+    def get_individuals_via_sparql(self):
+        query = """
+        SELECT ?ind ?class WHERE {
+            ?ind rdf:type ?class .
+            ?class rdf:type owl:Class .
+            FILTER (?class != owl:Class)
+        }
+        """
+        try:
+            return [(row.ind, row['class']) for row in self.graph.query(query)]
+        except Exception as e:
+            self.logger.error("SPARQL query for individuals failed: %s", str(e))
+            raise
+
+    def load_ontology(self):
+        start_time = time.time()
+        onto_logger = self.logger.getChild('OntologyLoader')
+
+        if self.ontology_service.preprocessed_file is not None and not os.path.exists(self.ontology_service.preprocessed_file):
+            onto_logger.info("Preprocessed OWL file not found. Triggering preprocessing.")
+            try:
+                self.ontology_service.preprocess(self.ontology_service.file)
+            except Exception as e:
+                raise RuntimeError(f"Preprocessing failed: {e}") from e
+
+        try:
+            import oxrdflib
+            with open(self.ontology_service.preprocessed_file, 'r', encoding='utf-8') as f:
+                g = rdflib.Graph(store=oxrdflib.OxigraphStore())
+                g.parse(f, format="xml")
+            onto_logger.info(f"Ontology loaded successfully with {len(g)} triples in {int(time.time() - start_time)} seconds.")
+            return g
+        except ImportError as ie:
+            onto_logger.warning("Oxrdflib not installed: %s. Falling back to default rdflib store.", str(ie))
+            g = rdflib.Graph()
+        except Exception as e:
+            onto_logger.warning("Failed to initialize Oxrdflib: %s. Falling back to default rdflib store.", str(e))
+            g = rdflib.Graph()
+        return g
 
     def print_classes(self, object_map):
         for subject in self.graph.subjects(RDF.type, OWL.Class):
@@ -100,7 +173,7 @@ class OWLGraphProcessor:
                     if label:
                         return label
             return self.short_name(node)
-        elif self.custom_matching_function(node):
+        elif self.ontology_service.custom_matching_function(node):
             uri = self.get_full_uri(node)
             label = self.find_rdfs_label(uri)
             if label:
@@ -113,7 +186,7 @@ class OWLGraphProcessor:
         return self.find_predicate_label(node)
 
     def find_predicate_label(self, node):
-        if isinstance(node, str) and self.custom_matching_function(node):
+        if isinstance(node, str) and self.ontology_service.custom_matching_function(node):
             node = self.get_full_uri(node)
         for label in self.graph.objects(node, annotation_label):
             if not hasattr(label, 'language') or label.language is None or label.language == 'en':
@@ -159,29 +232,3 @@ class OWLGraphProcessor:
             return node.split('#')[-1] if '#' in node else node.split('/')[-1]
         return str(node)
 
-    @staticmethod
-    def load_ontology(logger, ontology, preprocessor):
-        """Load the ontology, preprocessing if necessary."""
-        start_time = time.time()
-        onto_logger = logger.getChild('OntologyLoader')
-        if not os.path.exists(ontology) and preprocessor is not None:
-            onto_logger.info("Preprocessed OWL file not found. Triggering preprocessing.")
-            preprocessor(logger)
-        else:
-            print(f"Using existing OWL file: {ontology}")
-            onto_logger.info("Using existing fixed OWL file: %s", ontology)
-
-        onto_logger.info("Loading ontology with rdflib.")
-        print("Loading ontology with rdflib.")
-        g = rdflib.Graph()
-        print("Done loading ontology.")
-        try:
-            print("Parsing OWL file.")
-            g.parse(ontology, format="xml")
-            print(f"Ontology loaded successfully with {len(g)} triples.")
-            onto_logger.info("Ontology loaded successfully with %d triples in %d.", len(g),
-                             int(time.time() - start_time))
-            return g
-        except Exception as e:
-            onto_logger.error("Failed to parse ontology: %s", str(e))
-            raise

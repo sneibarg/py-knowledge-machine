@@ -1,18 +1,15 @@
 import logging
 import re
-from pstats import SortKey
-
 import zstandard as zstd
 from datetime import time
 from typing import List, Optional, Union, Tuple
-
-from huggingface_hub import hf_hub_download
+from huggingface_hub import hf_hub_download, HfApi
 
 
 class HuggingFaceDatasetService:
     def __init__(self, logger):
+        self.api = HfApi()
         self.logger = logger
-        pass
 
     def dump_zstd(self, local_path) -> List[str]:
         lines = []
@@ -20,12 +17,22 @@ class HuggingFaceDatasetService:
             with zstd.open(local_path, 'rt') as f:
                 for line in f:
                     lines.append(line)
+            if not lines:
+                self.logger.warning(f"Empty ZST file: {local_path}")
             return lines
+        except zstd.ZstdError as ze:
+            self.logger.error(f"Malformed ZST file {local_path}: {ze}")
+            raise ValueError("Invalid ZST compression") from ze
         except Exception as e:
-            self.logger.error(f"Error processing file: {e}")
+            self.logger.error(f"Error processing ZST {local_path}: {e}")
             return []
 
     def download(self, repo_id: str, file_path: str, cache_dir: Optional[str] = None, retry_count: int = 3) -> str:
+        try:
+            self.api.dataset_info(repo_id)
+        except Exception as e:
+            raise ValueError(f"Invalid or inaccessible repo_id '{repo_id}': {e}") from e
+
         for attempt in range(retry_count):
             try:
                 self.logger.info(f'Downloading {file_path}, attempt {attempt + 1}')
@@ -50,13 +57,11 @@ class HuggingFaceDatasetService:
 
     @staticmethod
     def split_files(files: List[Tuple[str, str]], num_procs: int) -> List[List[Tuple[str, str]]]:
-        """Split files into chunks for each process."""
         chunk_size = max(1, len(files) // num_procs)
         return [files[i:i + chunk_size] for i in range(0, len(files), chunk_size)]
 
     @staticmethod
     def get_sort_key(local_path) -> Union[tuple[int, int, int], tuple[float, float, float]]:
-        """Extract sorting keys from the file path for sequential ordering."""
         match = re.match(r'global-shard_(\d+)_of_\d+/local-shard_(\d+)_of_\d+/shard_(\d+)_processed\.jsonl\.zst',
                          local_path)
         if match:
