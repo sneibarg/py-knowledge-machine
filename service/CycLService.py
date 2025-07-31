@@ -2,12 +2,82 @@ import requests
 import urllib.parse
 import time
 
-from service import cb_handle_query, update_cyc_payload, cb_handle_create, cb_handle_assert, cb_continue_query
+from service import cb_handle_query, update_cyc_payload, cb_handle_create, cb_handle_assert, cb_continue_query, cb_handle_specify
 from bs4 import BeautifulSoup
+from typing import List
+
+
+def _parse_term(soup: BeautifulSoup) -> List:
+    slots = []
+    for elem in soup.find_all():
+        if elem.name == 'table' and elem.get('noflow') == ' noflow':
+            assert_sent = elem.find_all('span', class_='assert-sent')
+            if assert_sent is not None and len(assert_sent) > 0:
+                slot_name = elem.find('a', target='cyc-main').text
+                line = ""
+                for assertion in assert_sent:
+                    line = line + " " + assertion.text.strip().replace(f"\n", "")
+                slots.append({slot_name:line})
+    return slots
+
+
+def _parse_all_assertions(soup):
+    output = []
+    predicate_strong = soup.find('strong', string=lambda t: t and 'Predicate :' in t)
+    if predicate_strong:
+        term_strong = predicate_strong.find_next_sibling('strong')
+        if term_strong:
+            term = term_strong.find('a').text.strip()
+            output.append(f"Predicate: {term}\n")
+
+    current_section = "On the term"
+    sections = {current_section: []}
+    on_term_strong = soup.find('strong', string='on  the term')
+    if on_term_strong:
+        output.append(f"{current_section}:")
+    for elem in soup.find_all():
+        if elem.name == 'strong' and 'via' in elem.text:
+            current_section = elem.text.strip()
+            sections[current_section] = []
+        elif elem.name == 'table' and elem.get('noflow') == ' noflow':
+            strong_td = elem.find('td', valign='top')
+            if strong_td:
+                pred = strong_td.find('strong').find('a').text.strip() if strong_td.find('strong') else ''
+                value_td = strong_td.find_next_sibling('td')
+                if value_td:
+                    value = ''
+                    assert_sent = value_td.find('span', class_='assert-sent')
+                    if assert_sent:
+                        value_a = assert_sent.find('a', recursive=False)
+                        if value_a and value_a.find_next_sibling() is None:
+                            value = value_a.find_next('a').text.strip() if value_a.find_next('a') else ''
+                        else:
+                            nobr = value_td.find('nobr')
+                            if nobr:
+                                value = nobr.text.strip()
+                            string_span = assert_sent.find('span', class_='string')
+                            if string_span:
+                                value = string_span.text.strip()
+                    if pred and value:
+                        sections[current_section].append(f"{pred}: {value}")
+        elif elem.name == 'span' and 'assertion' in elem.get('class', []):
+            cons_span = elem.find('span', class_='cons')
+            if cons_span:
+                sentence = cons_span.text.strip().replace('(', '').replace(')', '').replace('\n', ' ')
+                sections[current_section].append(f"({sentence})")
+        elif elem.name == 'a' and 'query' in elem.text.lower():
+            query_text = elem.text.strip()
+            sections[current_section].append(f"{query_text} [LitQ]")
+    for sec, items in sections.items():
+        if items:
+            output.append(f"\n{sec}:")
+            for item in items:
+                output.append(item)
+    return '\n'.join(output)
 
 
 class CycLService:
-    def __init__(self, host='dragon:3602'):
+    def __init__(self, host='localhost:3602'):
         self.base_url = f"http://{host}/cgi-bin/"
         self.session = requests.Session()
 
@@ -196,14 +266,36 @@ class CycLService:
             'pretty_output': pretty_output
         }
 
-    def search_term(self, term, mode='default'):
-        search_params = {
-            'cb-handle-specify': '',
-            'handler': 'cb-cf',
-            'arg-done': 'T',
-            'query': term,
-            'uniquifier-code': '335'
-        }
+    def search_terms(self, term):
+        terms = []
+        if term.startswith("#$"):
+            raise ValueError("Term starts with '#$' - call search_term for a specific term")
+        search_params = cb_handle_specify.copy()
+        search_params['query'] = term
+        main_response = self.session.get(self.base_url + 'cg', params=search_params)
+        if main_response.status_code != 200:
+            raise ValueError("Failed to fetch main page.")
+        soup = BeautifulSoup(main_response.text, 'html.parser')
+        tds = soup.find_all('td', attrs={'valign': 'top'})
+        for td in tds:
+            if td.text.strip() == '':
+                continue
+            collect = False
+            for child in td.children:
+                if isinstance(child, str):
+                    continue
+                if child.name == 'hr':
+                    collect = True
+                    continue
+                if collect and child.name in ['a', 'span']:
+                    term_text = child.get_text().strip()
+                    if term_text:
+                        terms.append(term_text)
+        return terms
+
+    def search_term(self, term):
+        search_params = cb_handle_specify.copy()
+        search_params['query'] = term
         main_response = self.session.get(self.base_url + 'cg', params=search_params)
         if main_response.status_code != 200:
             raise ValueError("Failed to fetch main page.")
@@ -211,70 +303,12 @@ class CycLService:
         frames = soup.find_all('frame')
         if len(frames) != 2:
             raise ValueError("Unexpected frameset structure.")
-        index_src = frames[0]['src']
         content_src = frames[1]['src']
-        constant_id = index_src.split('&')[1]
-        content_url = self.base_url + (
-            content_src if mode == 'default' else f"cg?cb-inferred-gaf-arg-assertions&{constant_id}")
+        content_url = self.base_url + content_src
         content_response = self.session.get(content_url)
         if not content_response.ok:
             raise ValueError("Failed to fetch content frame.")
-        content_soup = BeautifulSoup(content_response.text, 'html.parser')
-        return content_soup.get_text(separator='\n\n', strip=True) if mode == 'default' else self._parse_all_assertions(
-            content_soup)
-
-    def _parse_all_assertions(self, soup):
-        output = []
-        predicate_strong = soup.find('strong', string=lambda t: t and 'Predicate :' in t)
-        if predicate_strong:
-            term_strong = predicate_strong.find_next_sibling('strong')
-            if term_strong:
-                term = term_strong.find('a').text.strip()
-                output.append(f"Predicate: {term}\n")
-        current_section = "On the term"
-        sections = {current_section: []}
-        on_term_strong = soup.find('strong', string='on  the term')
-        if on_term_strong:
-            output.append(f"{current_section}:")
-        for elem in soup.find_all():
-            if elem.name == 'strong' and 'via' in elem.text:
-                current_section = elem.text.strip()
-                sections[current_section] = []
-            elif elem.name == 'table' and elem.get('noflow') == ' noflow':
-                strong_td = elem.find('td', valign='top')
-                if strong_td:
-                    pred = strong_td.find('strong').find('a').text.strip() if strong_td.find('strong') else ''
-                    value_td = strong_td.find_next_sibling('td')
-                    if value_td:
-                        value = ''
-                        assert_sent = value_td.find('span', class_='assert-sent')
-                        if assert_sent:
-                            value_a = assert_sent.find('a', recursive=False)
-                            if value_a and value_a.find_next_sibling() is None:
-                                value = value_a.find_next('a').text.strip() if value_a.find_next('a') else ''
-                            else:
-                                nobr = value_td.find('nobr')
-                                if nobr:
-                                    value = nobr.text.strip()
-                                string_span = assert_sent.find('span', class_='string')
-                                if string_span:
-                                    value = string_span.text.strip()
-                        if pred and value:
-                            sections[current_section].append(f"{pred}: {value}")
-            elif elem.name == 'span' and 'assertion' in elem.get('class', []):
-                cons_span = elem.find('span', class_='cons')
-                if cons_span:
-                    sentence = cons_span.text.strip().replace('(', '').replace(')', '').replace('\n', ' ')
-                    sections[current_section].append(f"({sentence})")
-            elif elem.name == 'a' and 'query' in elem.text.lower():
-                query_text = elem.text.strip()
-                sections[current_section].append(f"{query_text} [LitQ]")
-        for sec, items in sections.items():
-            if items:
-                output.append(f"\n{sec}:")
-                for item in items:
-                    output.append(item)
-        return '\n'.join(output)
+        return _parse_term(BeautifulSoup(content_response.text, 'html.parser'))
 
     def alpha_paging(self):
         start_time = time.time()

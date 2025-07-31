@@ -84,6 +84,14 @@ cb_handle_query = {
     'uniquifier-code': ''
 }
 
+cb_handle_specify = {
+    'cb-handle-specify': '',
+    'handler': 'cb-cf',
+    'arg-done': 'T',
+    'query': None,
+    'uniquifier-code': '335'
+}
+
 cb_continue_query = cb_handle_query.copy()
 cb_continue_query['continue'] = 'Continue the Focal Inference'
 
