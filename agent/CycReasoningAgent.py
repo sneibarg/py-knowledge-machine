@@ -15,7 +15,7 @@ class CycReasoningAgent:
         self.ollama_service = ollama_service
         self.microtheories = []
         self.predicate_microtheories = []
-        self._populate_microtheories()
+        # self._populate_microtheories()
         self.predicates = None
 
     def _populate_microtheories(self):
