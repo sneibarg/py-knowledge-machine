@@ -11,10 +11,10 @@ class CycSynset(Synset):
         self.functions = None
 
     def __init_predicates(self):
-        query = "(#$isa ?ARG1 #$Predicate)"
+        query = f"(#$isa {self.term.capitalize()} #$Predicate)"
         self.functions = self.cycl_service.query_sentence(query, mt_monad="BaseKB")
 
     def __init_functions(self):
-        query = "(#$isa ?ARG1 #$CollectionDenotingFunction)"
+        query = f"(#$isa {self.term.capitalize()} #$CollectionDenotingFunction)"
         self.functions = self.cycl_service.query_sentence(query, mt_monad="BaseKB")
 
