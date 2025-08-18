@@ -1,5 +1,4 @@
 from typing import List
-
 from processor.nlp.Synset import Synset
 from service.CycLService import CycLService
 from service.NlpService import NlpService
@@ -29,8 +28,11 @@ class CycSynset(Synset):
             return answers
 
     def __link_predicates(self) -> List:
-        pass
+        query = f"(#$isa #$Predicate ?ARG2)"
+        answers = self.cycl_service.query_sentence(query, mt_monad="BaseKB")['answers']
+        return answers.items()
 
     def __link_functions(self) -> List:
-        pass
-
+        query = f"(#$isa #$CollectionDenotingFunction ?ARG2)"
+        answers = self.cycl_service.query_sentence(query, mt_monad="BaseKB")['answers']
+        return answers.items()
