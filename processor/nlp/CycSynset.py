@@ -11,7 +11,8 @@ base_prompt = ("I am your automated ontology editor, and I am reviewing the resu
 
 
 class CycSynset(Synset):
-    def __init__(self, term: str, pos: str, nlp_service: NlpService, ollama_service: OllamaService, cycl_service: CycLService):
+    def __init__(self, term: str, pos: str, nlp_service: NlpService, ollama_service: OllamaService,
+                 cycl_service: CycLService):
         super().__init__(term, pos, nlp_service, ollama_service)
         self.cycl_service = cycl_service
         self.predicate_comment = self.__init_predicate_comment()
@@ -19,6 +20,18 @@ class CycSynset(Synset):
         self.term_comment = self.__init_term_comment()
         self.predicates = self.__init_predicates()
         self.functions = self.__init_functions()
+
+    def __relevant(self, answers, instance_type) -> List:
+        prompt = base_prompt.replace("?INSTANCE", instance_type)
+        if instance_type == "Predicate":
+            prompt = prompt.replace("?COMMENT", self.predicate_comment)
+        else:
+            prompt = prompt.replace("?COMMENT", self.function_comment)
+
+        text = f"The list of instances provided by OpenCyc for {self.term} are listed as follows: {' '.join(answers)}.\n"
+        text = text + "I will reason through this list and return a much smaller list to assert to a different Microtheory.\n"
+        text = text + "The list is: "
+        return self.ollama_service.one_shot(text, prompt).replace("The list is: ", "").split(" ")
 
     def __init_term_comment(self) -> str:
         query = f"(comment {self.term.capitalize()} ?TEXT)"
@@ -52,11 +65,9 @@ class CycSynset(Synset):
     def __link_predicates(self) -> List:
         query = f"(#$isa #$Predicate ?ARG2)"
         answers = self.cycl_service.query_sentence(query, mt_monad="BaseKB")['answers']
-        relevant_answers = []
-        return relevant_answers
+        return self.__relevant(answers, "Predicate")
 
     def __link_functions(self) -> List:
         query = f"(#$isa #$CollectionDenotingFunction ?ARG2)"
         answers = self.cycl_service.query_sentence(query, mt_monad="BaseKB")['answers']
-        relevant_answers = []
-        return relevant_answers
+        return self.__relevant(answers, "CollectionDenotingFunction")
