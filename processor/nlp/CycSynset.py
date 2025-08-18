@@ -30,9 +30,11 @@ class CycSynset(Synset):
     def __link_predicates(self) -> List:
         query = f"(#$isa #$Predicate ?ARG2)"
         answers = self.cycl_service.query_sentence(query, mt_monad="BaseKB")['answers']
-        return answers.items()
+        relevant_answers = []
+        return relevant_answers
 
     def __link_functions(self) -> List:
         query = f"(#$isa #$CollectionDenotingFunction ?ARG2)"
         answers = self.cycl_service.query_sentence(query, mt_monad="BaseKB")['answers']
-        return answers.items()
+        relevant_answers = []
+        return relevant_answers
