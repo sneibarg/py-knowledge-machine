@@ -7,5 +7,6 @@ class Synset:
         self.term = term
         self.pos = pos
         self.nlp_service = nlp_service
+        self.ollama_service = ollama_service
         self.relations = nlp_service.stanford_relations(term)
         self.openie_triples = nlp_service.stanford_relations(term, True)

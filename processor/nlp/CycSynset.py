@@ -13,8 +13,6 @@ base_prompt = ("I am your automated ontology editor, and I am reviewing the resu
 class CycSynset(Synset):
     def __init__(self, term: str, pos: str, nlp_service: NlpService, ollama_service: OllamaService, cycl_service: CycLService):
         super().__init__(term, pos, nlp_service, ollama_service)
-        self.ollama_service = ollama_service
-        self.nlp_service = nlp_service
         self.cycl_service = cycl_service
         self.predicate_comment = self.__init_predicate_comment()
         self.function_comment = self.__init_function_comment()
