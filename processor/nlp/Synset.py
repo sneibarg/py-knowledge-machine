@@ -1,8 +1,9 @@
 from service.NlpService import NlpService
+from service.OllamaService import OllamaService
 
 
 class Synset:
-    def __init__(self, term: str, pos: str, nlp_service: NlpService):
+    def __init__(self, term: str, pos: str, nlp_service: NlpService, ollama_service: OllamaService):
         self.term = term
         self.pos = pos
         self.nlp_service = nlp_service

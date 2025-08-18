@@ -2,24 +2,19 @@ from typing import List
 from processor.nlp.Synset import Synset
 from service.CycLService import CycLService
 from service.NlpService import NlpService
+from service.OllamaService import OllamaService
 
 base_prompt = ("I am your automated ontology editor, and I am reviewing the results of a CycL query."
-               "I will be given a list of OpenCyc instances. I will...")
-predicate_prompt = base_prompt + ("I understand that Predicate instances are a feature of the OpenCyc platform."
-                                  "OpenCyc describes them as such: A specialization of TruthFunction (q.v.). "
-                                  "Each instance of Predicate is either a property of things (see UnaryPredicate) or a relationship holding between two or more things. "
-                                  "Like other truth-functions, predicates, or rather the expressions that represent or denote them, are used to form sentences. "
-                                  "More precisely, any CycL expression that denotes an instance of Predicate (and only such an expression) can appear in the \"0th\" (or \"arg0\") "
-                                  "position (i.e. as the term following the opening parenthesis) of a CycLAtomicSentence (q.v.). "
-                                  "Important specializations of Predicate include UnaryPredicate, BinaryPredicate, TernaryPredicate, QuaternaryPredicate, and QuintaryPredicate. "
-                                  "Note that, despite its name, Predicate is a collection of relations, and not a collection of expressions that represent or denote such relations."
-                                  "Given OpenCyc's description, and the name of the term, I will refine the result set."
-                                  "The given predicates are likely relevant to be asserted: ")
+               "I will be given a list of OpenCyc instances. "
+               "I understand that ?INSTANCE instances are a feature of the OpenCyc platform."
+               "OpenCyc describes them as such: ?COMMENT")
 
 
 class CycSynset(Synset):
-    def __init__(self, term: str, pos: str, nlp_service: NlpService, cycl_service: CycLService):
-        super().__init__(term, pos, nlp_service)
+    def __init__(self, term: str, pos: str, nlp_service: NlpService, ollama_service: OllamaService, cycl_service: CycLService):
+        super().__init__(term, pos, nlp_service, ollama_service)
+        self.ollama_service = ollama_service
+        self.nlp_service = nlp_service
         self.cycl_service = cycl_service
         self.predicate_comment = self.__init_predicate_comment()
         self.function_comment = self.__init_function_comment()
