@@ -3,7 +3,8 @@ from processor.nlp.Synset import Synset
 from service.CycLService import CycLService
 from service.NlpService import NlpService
 
-base_prompt = "I am your automated ontology editor, and I am reviewing the results of CycL query."
+base_prompt = ("I am your automated ontology editor, and I am reviewing the results of a CycL query."
+               "I will be given a list of OpenCyc instances. I will...")
 predicate_prompt = base_prompt + ("I understand that Predicate instances are a feature of the OpenCyc platform."
                                   "OpenCyc describes them as such: A specialization of TruthFunction (q.v.). "
                                   "Each instance of Predicate is either a property of things (see UnaryPredicate) or a relationship holding between two or more things. "
@@ -26,10 +27,12 @@ class CycSynset(Synset):
         self.functions = self.__init_functions()
 
     def __init_predicate_comment(self) -> str:
-        pass
+        query = f"(comment #$Predicate ?TEXT)"
+        return self.cycl_service.query_sentence(query, mt_monad="BaseKB")['answers'].items()[0]
 
     def __init_function_comment(self) -> str:
-        pass
+        query = f"(comment #$CollectionDenotingFunction ?TEXT)"
+        return self.cycl_service.query_sentence(query, mt_monad="BaseKB")['answers'].items()[0]
 
     def __init_predicates(self) -> List:
         query = f"(#$isa {self.term.capitalize()} #$Predicate)"  # returns Query is not proven when unlinked
