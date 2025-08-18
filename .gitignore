@@ -8,6 +8,7 @@ runtime/logs/
 runtime/owl/
 runtime/owl/cyc/
 runtime/microtheories/
+runtime/cpart/
 
 # C extensions
 *.so
