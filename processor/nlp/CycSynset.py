@@ -23,8 +23,14 @@ class CycSynset(Synset):
         self.cycl_service = cycl_service
         self.predicate_comment = self.__init_predicate_comment()
         self.function_comment = self.__init_function_comment()
+        self.term_comment = self.__init_term_comment()
         self.predicates = self.__init_predicates()
         self.functions = self.__init_functions()
+
+    def __init_term_comment(self) -> str:
+        query = f"(comment {self.term.capitalize()} ?TEXT)"
+        term_comment = self.cycl_service.query_sentence(query, mt_monad="EnglishMt")['answers'].items()[0]
+        return term_comment
 
     def __init_predicate_comment(self) -> str:
         query = f"(comment #$Predicate ?TEXT)"
