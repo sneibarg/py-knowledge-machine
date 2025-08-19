@@ -28,10 +28,11 @@ class CycSynset(Synset):
         else:
             prompt = prompt.replace("?COMMENT", self.function_comment)
 
-        text = f"The list of instances provided by OpenCyc for {self.term} are listed as follows: {' '.join(answers)}.\n"
+        text = f"The OpenCyc result set for {self.term} is listed as follows: {' '.join(answers)}.\n"
         text = text + "I will reason through this list and return a much smaller list to assert to a different Microtheory.\n"
-        text = text + "The list is: "
-        return self.ollama_service.one_shot(text, prompt).replace("The list is: ", "").split(" ")
+        text = text + "As part of my reasoning process, I will determine whether the instance is a member of the upper, middle, or lower ontology."
+        text = text + "The selected instances are: "
+        return self.ollama_service.one_shot(text, prompt).replace("The selected instances are: ", "").split(" ")
 
     def __init_term_comment(self) -> str:
         query = f"(comment {self.term.capitalize()} ?TEXT)"
