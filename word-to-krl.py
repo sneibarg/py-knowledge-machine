@@ -38,7 +38,6 @@ for synset in synsets:
     openie_triples = nlp_service.stanford_relations(definition, True)
     parse_tree = str(relations['sentences'][0]['parseTree'])
     tree = translate_parse_tree(parse_tree)
-    leaves = tree.get_leaves()
     all_nouns = [tree.get_nodes_by_type(noun) for noun in ['NN', 'NNS']]
     all_verbs = [tree.get_nodes_by_type(verb) for verb in ['VBG', 'VBN']]
     for noun in all_nouns:
