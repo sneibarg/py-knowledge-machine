@@ -3,6 +3,8 @@ import sys
 import requests
 
 from processor.nlp import translate_parse_tree
+from processor.nlp.PartOfSpeech import PartOfSpeech
+from processor.nlp.CycSynset import CycSynset
 from service.CycLService import CycLService
 from service.LoggingService import LoggingService
 from service.NlpService import NlpService
@@ -37,17 +39,20 @@ for synset in synsets:
     parse_tree = str(relations['sentences'][0]['parseTree'])
     tree = translate_parse_tree(parse_tree)
     leaves = tree.get_leaves()
-    all_nouns = tree.get_nodes_by_type(['NN', 'NNS'])
-    all_verbs = tree.get_nodes_by_type(['VBG', 'VBN'])
+    all_nouns = [tree.get_nodes_by_type(noun) for noun in ['NN', 'NNS']]
+    all_verbs = [tree.get_nodes_by_type(verb) for verb in ['VBG', 'VBN']]
     for noun in all_nouns:
-        try:
-            singular = wnl.lemmatize(noun.label, 'n')
-            term = open_cyc_service.search_term(singular)
-            print(f"TERM={term}")
-            cyc_english_word = open_cyc_service.query_sentence(f"(#$prettyString-Canonical ?TERM \"{singular}\")", mt_monad='EnglishMt')
-            word_instances = open_cyc_service.query_sentence(f"(#$isa #${singular.capitalize()} ?ARG2)", mt_monad='BaseKB')
-        except ValueError as ve:
-            print(ve)
+        for node in noun:
+            print("NOUN="+str(node.label))
+            try:
+                singular = wnl.lemmatize(node.label, 'n')
+                term = open_cyc_service.search_term(singular)
+                cyc_synset = CycSynset(singular, PartOfSpeech.NN, nlp_service, ollama_service, cycl_service)
+                print(f"TERM={term}")
+                cyc_english_word = open_cyc_service.query_sentence(f"(#$prettyString-Canonical ?TERM \"{singular}\")", mt_monad='EnglishMt')
+                word_instances = open_cyc_service.query_sentence(f"(#$isa #${singular.capitalize()} ?ARG2)", mt_monad='BaseKB')
+            except ValueError as ve:
+                print(ve)
 sys.exit(0)
 
 
