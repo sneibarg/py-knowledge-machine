@@ -13,7 +13,7 @@ from service.OpenCycService import OpenCycService
 from agent.CycReasoningAgent import CycReasoningAgent
 from nltk.stem import WordNetLemmatizer
 
-test_sentence= "if you can't sit up while laying flat then you could stand to do some situps"
+test_sentence = "if you can't sit up while laying flat then you could stand to do some situps"
 wnl = WordNetLemmatizer()
 payload = {"word": "egg", "pos": "noun"}
 wordnet_api = "http://dragon:9081/wordnet/synsets"
@@ -38,24 +38,32 @@ for synset in synsets:
     openie_triples = nlp_service.stanford_relations(definition, True)
     parse_tree = str(relations['sentences'][0]['parseTree'])
     tree = translate_parse_tree(parse_tree)
-    all_nouns = [tree.get_nodes_by_type(noun) for noun in ['NN', 'NNS']]
+    all_nouns = [tree.get_nodes_by_type(noun) for noun in ['NN', 'NNS', 'NNP', 'NNPS']]
     all_verbs = [tree.get_nodes_by_type(verb) for verb in ['VBG', 'VBN']]
     for noun in all_nouns:
         for node in noun:
-            print("NOUN="+str(node.label))
+            if node.label is None:
+                continue
+            print("NOUN=" + str(node.label))
             try:
                 singular = wnl.lemmatize(node.label, 'n')
                 term = open_cyc_service.search_term(singular)
-                cyc_synset = CycSynset(singular, PartOfSpeech.NN, nlp_service, ollama_service, cycl_service)
+                cyc_synset = None
+                if node.pos == "NN":
+                    cyc_synset = CycSynset(singular, PartOfSpeech.NN.value, nlp_service, ollama_service, cycl_service)
+                elif node.pos == "NNS":
+                    cyc_synset = CycSynset(singular, PartOfSpeech.NNS.value, nlp_service, ollama_service, cycl_service)
+                elif node.pos == "NNP":
+                    cyc_synset = CycSynset(singular, PartOfSpeech.NNP.value, nlp_service, ollama_service, cycl_service)
+                elif node.pos == "NNPS":
+                    cyc_synset = CycSynset(singular, PartOfSpeech.NNPS.value, nlp_service, ollama_service, cycl_service)
+                print(f"CYC_SYNSET={str(cyc_synset)}")
                 print(f"TERM={term}")
-                cyc_english_word = open_cyc_service.query_sentence(f"(#$prettyString-Canonical ?TERM \"{singular}\")", mt_monad='EnglishMt')
-                word_instances = open_cyc_service.query_sentence(f"(#$isa #${singular.capitalize()} ?ARG2)", mt_monad='BaseKB')
+                print(f"TERM_COMMENT={cyc_synset.term_comment}")
+                cyc_english_word = open_cyc_service.query_sentence(f"(#$prettyString-Canonical ?TERM \"{singular}\")",
+                                                                   mt_monad='EnglishMt')
+                word_instances = open_cyc_service.query_sentence(f"(#$isa #${singular.capitalize()} ?ARG2)",
+                                                                 mt_monad='BaseKB')
             except ValueError as ve:
                 print(ve)
-sys.exit(0)
-
-
-
-
-
-
+        sys.exit(0)
