@@ -4,7 +4,7 @@ import requests
 
 from processor.nlp import translate_parse_tree
 from processor.nlp.PartOfSpeech import PartOfSpeech
-from processor.nlp.CycSynset import CycSynset
+from processor.nlp.CycSynset import get_cyc_synset
 from service.CycLService import CycLService
 from service.LoggingService import LoggingService
 from service.NlpService import NlpService
@@ -38,26 +38,17 @@ for synset in synsets:
     openie_triples = nlp_service.stanford_relations(definition, True)
     parse_tree = str(relations['sentences'][0]['parseTree'])
     tree = translate_parse_tree(parse_tree)
-    all_nouns = [tree.get_nodes_by_type(noun) for noun in ['NN', 'NNS', 'NNP', 'NNPS']]
-    all_verbs = [tree.get_nodes_by_type(verb) for verb in ['VBG', 'VBN']]
+    all_nouns = [tree.get_nodes_by_type(noun) for noun in
+                 [PartOfSpeech.NN.value, PartOfSpeech.NNS.value, PartOfSpeech.NNP.value, PartOfSpeech.NNPS.value]]
+    all_verbs = [tree.get_nodes_by_type(verb) for verb in [PartOfSpeech.VBG.value, PartOfSpeech.VBN.value]]
     for noun in all_nouns:
         for node in noun:
             if node.label is None:
                 continue
-            print("NOUN=" + str(node.label))
             try:
                 singular = wnl.lemmatize(node.label, 'n')
-                term = open_cyc_service.search_term(singular)
-                cyc_synset = None
-                if node.pos == "NN":
-                    cyc_synset = CycSynset(singular, PartOfSpeech.NN.value, nlp_service, ollama_service, cycl_service)
-                elif node.pos == "NNS":
-                    cyc_synset = CycSynset(singular, PartOfSpeech.NNS.value, nlp_service, ollama_service, cycl_service)
-                elif node.pos == "NNP":
-                    cyc_synset = CycSynset(singular, PartOfSpeech.NNP.value, nlp_service, ollama_service, cycl_service)
-                elif node.pos == "NNPS":
-                    cyc_synset = CycSynset(singular, PartOfSpeech.NNPS.value, nlp_service, ollama_service, cycl_service)
-                print(f"CYC_SYNSET={str(cyc_synset)}")
+                term = open_cyc_service.search_term(singular)  # this is my unexpected frameset structure for 'animal'.
+                cyc_synset = get_cyc_synset(node, nlp_service, ollama_service, cycl_service, wnl)
                 print(f"TERM={term}")
                 print(f"TERM_COMMENT={cyc_synset.term_comment}")
                 cyc_english_word = open_cyc_service.query_sentence(f"(#$prettyString-Canonical ?TERM \"{singular}\")",

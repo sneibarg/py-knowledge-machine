@@ -1,4 +1,6 @@
 from typing import List
+
+from processor.nlp.PartOfSpeech import PartOfSpeech
 from processor.nlp.Synset import Synset
 from service.CycLService import CycLService
 from service.NlpService import NlpService
@@ -9,6 +11,31 @@ base_prompt = ("I am your automated ontology editor, and I am reviewing the resu
                "I will be given a list of OpenCyc instances. "
                "I understand that ?INSTANCE instances are a feature of the OpenCyc platform."
                "OpenCyc describes them as such: ?COMMENT")
+
+
+def get_cyc_synset(node, nlp_service, ollama_service, cycl_service, lemmatizer):
+    if node.label is None:
+        return None
+    try:
+        pos_map = {
+            PartOfSpeech.NN.value: 'n', PartOfSpeech.NNS.value: 'n',
+            PartOfSpeech.NNP.value: 'n', PartOfSpeech.NNPS.value: 'n',
+            PartOfSpeech.VB.value: 'v', PartOfSpeech.VBD.value: 'v',
+            PartOfSpeech.VBG.value: 'v', PartOfSpeech.VBN.value: 'v',
+            PartOfSpeech.VBP.value: 'v', PartOfSpeech.VBZ.value: 'v',
+            PartOfSpeech.JJ.value: 'a', PartOfSpeech.JJR.value: 'a',
+            PartOfSpeech.JJS.value: 'a', PartOfSpeech.RB.value: 'r',
+            PartOfSpeech.RBR.value: 'r', PartOfSpeech.RBS.value: 'r'
+        }
+        pos_tag = PartOfSpeech.from_tag(node.pos)
+        if pos_tag == PartOfSpeech.PUNCT:
+            return None
+        lemma_pos = pos_map.get(node.pos, 'n')
+        singular = lemmatizer.lemmatize(node.label, lemma_pos)
+        return CycSynset(singular, node.pos, nlp_service, ollama_service, cycl_service)
+    except ValueError as ve:
+        print(ve)
+        return None
 
 
 class CycSynset(Synset):
