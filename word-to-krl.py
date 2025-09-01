@@ -5,7 +5,6 @@ import requests
 from processor.nlp import translate_parse_tree
 from processor.nlp.PartOfSpeech import PartOfSpeech
 from processor.nlp.CycSynset import get_cyc_synset
-from service.CycLService import CycLService
 from service.LoggingService import LoggingService
 from service.NlpService import NlpService
 from service.OllamaService import OllamaService
@@ -25,7 +24,6 @@ logger = logging_service.setup_logging(False)
 open_cyc_service = OpenCycService(cyc_host, logger)
 ollama_service = OllamaService(ollama_api_url, logger)
 nlp_service = NlpService(nlp_api_url, logger)
-cycl_service = CycLService(host=cyc_host)
 cyc_reasoning_agent = CycReasoningAgent(ollama_service, open_cyc_service, logger)
 synsets = requests.get(wordnet_api, params=payload).json()['synsets']
 for synset in synsets:
@@ -48,7 +46,7 @@ for synset in synsets:
             try:
                 singular = wnl.lemmatize(node.label, 'n')
                 term = open_cyc_service.search_term(singular)  # this is my unexpected frameset structure for 'animal'.
-                cyc_synset = get_cyc_synset(node, nlp_service, ollama_service, cycl_service, wnl)
+                cyc_synset = get_cyc_synset(node, nlp_service, ollama_service, open_cyc_service, wnl)
                 print(f"TERM={term}")
                 print(f"TERM_COMMENT={cyc_synset.term_comment}")
                 cyc_english_word = open_cyc_service.query_sentence(f"(#$prettyString-Canonical ?TERM \"{singular}\")",

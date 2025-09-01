@@ -80,7 +80,7 @@ class CycSynset(Synset):
         return self.__relevant(answers, "CollectionDenotingFunction")
 
 
-def get_cyc_synset(node, nlp_service, ollama_service, cycl_service, lemmatizer) -> CycSynset:
+def get_cyc_synset(node, nlp_service, ollama_service, open_cyc_service, lemmatizer) -> CycSynset:
     if node.label is None:
         return None
     try:
@@ -99,7 +99,7 @@ def get_cyc_synset(node, nlp_service, ollama_service, cycl_service, lemmatizer) 
             return None
         lemma_pos = pos_map.get(node.pos, 'n')
         singular = lemmatizer.lemmatize(node.label, lemma_pos)
-        return CycSynset(singular, node.pos, nlp_service, ollama_service, cycl_service)
+        return CycSynset(singular, node.pos, nlp_service, ollama_service, open_cyc_service)
     except ValueError as ve:
         print(ve)
         return None
