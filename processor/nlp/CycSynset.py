@@ -13,31 +13,6 @@ base_prompt = ("I am your automated ontology editor, and I am reviewing the resu
                "OpenCyc describes them as such: ?COMMENT")
 
 
-def get_cyc_synset(node, nlp_service, ollama_service, cycl_service, lemmatizer):
-    if node.label is None:
-        return None
-    try:
-        pos_map = {
-            PartOfSpeech.NN.value: 'n', PartOfSpeech.NNS.value: 'n',
-            PartOfSpeech.NNP.value: 'n', PartOfSpeech.NNPS.value: 'n',
-            PartOfSpeech.VB.value: 'v', PartOfSpeech.VBD.value: 'v',
-            PartOfSpeech.VBG.value: 'v', PartOfSpeech.VBN.value: 'v',
-            PartOfSpeech.VBP.value: 'v', PartOfSpeech.VBZ.value: 'v',
-            PartOfSpeech.JJ.value: 'a', PartOfSpeech.JJR.value: 'a',
-            PartOfSpeech.JJS.value: 'a', PartOfSpeech.RB.value: 'r',
-            PartOfSpeech.RBR.value: 'r', PartOfSpeech.RBS.value: 'r'
-        }
-        pos_tag = PartOfSpeech.from_tag(node.pos)
-        if pos_tag == PartOfSpeech.PUNCT:
-            return None
-        lemma_pos = pos_map.get(node.pos, 'n')
-        singular = lemmatizer.lemmatize(node.label, lemma_pos)
-        return CycSynset(singular, node.pos, nlp_service, ollama_service, cycl_service)
-    except ValueError as ve:
-        print(ve)
-        return None
-
-
 class CycSynset(Synset):
     def __init__(self, term: str, pos: str, nlp_service: NlpService, ollama_service: OllamaService,
                  cycl_service: CycLService):
@@ -103,3 +78,28 @@ class CycSynset(Synset):
         query = f"(#$isa #$CollectionDenotingFunction ?ARG2)"
         answers = self.cycl_service.query_sentence(query, mt_monad="BaseKB")['answers']
         return self.__relevant(answers, "CollectionDenotingFunction")
+
+
+def get_cyc_synset(node, nlp_service, ollama_service, cycl_service, lemmatizer) -> CycSynset:
+    if node.label is None:
+        return None
+    try:
+        pos_map = {
+            PartOfSpeech.NN.value: 'n', PartOfSpeech.NNS.value: 'n',
+            PartOfSpeech.NNP.value: 'n', PartOfSpeech.NNPS.value: 'n',
+            PartOfSpeech.VB.value: 'v', PartOfSpeech.VBD.value: 'v',
+            PartOfSpeech.VBG.value: 'v', PartOfSpeech.VBN.value: 'v',
+            PartOfSpeech.VBP.value: 'v', PartOfSpeech.VBZ.value: 'v',
+            PartOfSpeech.JJ.value: 'a', PartOfSpeech.JJR.value: 'a',
+            PartOfSpeech.JJS.value: 'a', PartOfSpeech.RB.value: 'r',
+            PartOfSpeech.RBR.value: 'r', PartOfSpeech.RBS.value: 'r'
+        }
+        pos_tag = PartOfSpeech.from_tag(node.pos)
+        if pos_tag == PartOfSpeech.PUNCT:
+            return None
+        lemma_pos = pos_map.get(node.pos, 'n')
+        singular = lemmatizer.lemmatize(node.label, lemma_pos)
+        return CycSynset(singular, node.pos, nlp_service, ollama_service, cycl_service)
+    except ValueError as ve:
+        print(ve)
+        return None
