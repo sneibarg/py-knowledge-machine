@@ -49,10 +49,8 @@ for synset in synsets:
                 cyc_synset = get_cyc_synset(node, nlp_service, ollama_service, open_cyc_service, wnl)
                 print(f"TERM={term}")
                 print(f"TERM_COMMENT={cyc_synset.term_comment}")
-                cyc_english_word = open_cyc_service.query_sentence(f"(#$prettyString-Canonical ?TERM \"{singular}\")",
-                                                                   mt_monad='EnglishMt')
-                word_instances = open_cyc_service.query_sentence(f"(#$isa #${singular.capitalize()} ?ARG2)",
-                                                                 mt_monad='BaseKB')
+                cyc_english_word = open_cyc_service.query_sentence(f"(#$prettyString-Canonical ?TERM \"{singular}\")", mt_monad='EnglishMt')
+                word_instances = open_cyc_service.query_sentence(f"(#$isa #${singular.capitalize()} ?ARG2)", mt_monad='BaseKB')
             except ValueError as ve:
                 print(ve)
         sys.exit(0)
