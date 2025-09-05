@@ -1,5 +1,4 @@
-from typing import List
-
+from typing import List, Optional
 from processor.nlp.PartOfSpeech import PartOfSpeech
 from processor.nlp.Synset import Synset
 from service.CycLService import CycLService
@@ -7,10 +6,20 @@ from service.NlpService import NlpService
 from service.OllamaService import OllamaService
 
 model_name = "gpt-oss:20b"
-base_prompt = ("I am your automated ontology editor, and I am reviewing the results of a CycL query."
-               "I will be given a list of OpenCyc instances. "
-               "I understand that ?INSTANCE instances are a feature of the OpenCyc platform."
-               "OpenCyc describes them as such: ?COMMENT")
+base_prompt = ("I am your automated ontology editor, and I am reviewing the results of a CycL query.\n"
+               "I will be given a list of OpenCyc instances.\n"
+               "I understand that ?INSTANCE instances are a feature of the OpenCyc platform.\n"
+               "OpenCyc describes them as such: ?COMMENT\n")
+pos_map = {
+    PartOfSpeech.NN.value: 'n', PartOfSpeech.NNS.value: 'n',
+    PartOfSpeech.NNP.value: 'n', PartOfSpeech.NNPS.value: 'n',
+    PartOfSpeech.VB.value: 'v', PartOfSpeech.VBD.value: 'v',
+    PartOfSpeech.VBG.value: 'v', PartOfSpeech.VBN.value: 'v',
+    PartOfSpeech.VBP.value: 'v', PartOfSpeech.VBZ.value: 'v',
+    PartOfSpeech.JJ.value: 'a', PartOfSpeech.JJR.value: 'a',
+    PartOfSpeech.JJS.value: 'a', PartOfSpeech.RB.value: 'r',
+    PartOfSpeech.RBR.value: 'r', PartOfSpeech.RBS.value: 'r'
+}
 
 
 class CycSynset(Synset):
@@ -36,8 +45,8 @@ class CycSynset(Synset):
         text = text + "As part of my reasoning process, I will determine whether the instance is a member of the upper, middle, or lower ontology.\n"
         text = text + "I will output the OpenCyc result set as three lines each of comma-separated (with a space after the comma) names without introducing any other text.\n"
         print(f"Submitting Ollama request with the following prompt: \n{prompt}\n\nPrompt text is {text}")
-        # response = self.ollama_service.one_shot(model_name, text, prompt)
-        # print(f"The response was: {str(response)}")
+        response = self.ollama_service.one_shot(model_name, text, prompt)
+        print(f"The response was: {str(response)}")
         return self.ollama_service.one_shot(model_name, text, prompt).split('\n')
 
     def __init_term_comment(self) -> str:
@@ -80,20 +89,10 @@ class CycSynset(Synset):
         return self.__relevant(answers, "CollectionDenotingFunction")
 
 
-def get_cyc_synset(node, nlp_service, ollama_service, open_cyc_service, lemmatizer) -> CycSynset:
+def get_cyc_synset(node, nlp_service, ollama_service, open_cyc_service, lemmatizer) -> Optional[CycSynset]:
     if node.label is None:
         return None
     try:
-        pos_map = {
-            PartOfSpeech.NN.value: 'n', PartOfSpeech.NNS.value: 'n',
-            PartOfSpeech.NNP.value: 'n', PartOfSpeech.NNPS.value: 'n',
-            PartOfSpeech.VB.value: 'v', PartOfSpeech.VBD.value: 'v',
-            PartOfSpeech.VBG.value: 'v', PartOfSpeech.VBN.value: 'v',
-            PartOfSpeech.VBP.value: 'v', PartOfSpeech.VBZ.value: 'v',
-            PartOfSpeech.JJ.value: 'a', PartOfSpeech.JJR.value: 'a',
-            PartOfSpeech.JJS.value: 'a', PartOfSpeech.RB.value: 'r',
-            PartOfSpeech.RBR.value: 'r', PartOfSpeech.RBS.value: 'r'
-        }
         pos_tag = PartOfSpeech.from_tag(node.pos)
         if pos_tag == PartOfSpeech.PUNCT:
             return None
