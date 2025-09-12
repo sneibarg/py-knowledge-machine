@@ -10,16 +10,7 @@ base_prompt = ("I am your automated ontology editor, and I am reviewing the resu
                "I will be given a list of OpenCyc instances.\n"
                "I understand that ?INSTANCE instances are a feature of the OpenCyc platform.\n"
                "OpenCyc describes them as such: ?COMMENT\n")
-pos_map = {
-    PartOfSpeech.NN.value: 'n', PartOfSpeech.NNS.value: 'n',
-    PartOfSpeech.NNP.value: 'n', PartOfSpeech.NNPS.value: 'n',
-    PartOfSpeech.VB.value: 'v', PartOfSpeech.VBD.value: 'v',
-    PartOfSpeech.VBG.value: 'v', PartOfSpeech.VBN.value: 'v',
-    PartOfSpeech.VBP.value: 'v', PartOfSpeech.VBZ.value: 'v',
-    PartOfSpeech.JJ.value: 'a', PartOfSpeech.JJR.value: 'a',
-    PartOfSpeech.JJS.value: 'a', PartOfSpeech.RB.value: 'r',
-    PartOfSpeech.RBR.value: 'r', PartOfSpeech.RBS.value: 'r'
-}
+word_map = PartOfSpeech.get_tag_map('word')
 
 
 class CycSynset(Synset):
@@ -52,7 +43,7 @@ class CycSynset(Synset):
     def __init_term_comment(self) -> str:
         query = f"(comment {self.term.capitalize()} ?TEXT)"
         term_comment = self.cycl_service.query_sentence(query, mt_monad="EnglishMt")['answers']['[Explain]']
-        return term_comment
+        return "" if term_comment is None else term_comment
 
     def __init_predicate_comment(self) -> str:
         query = f"(comment #$Predicate ?TEXT)"
@@ -96,7 +87,7 @@ def get_cyc_synset(node, nlp_service, ollama_service, open_cyc_service, lemmatiz
         pos_tag = PartOfSpeech.from_tag(node.pos)
         if pos_tag == PartOfSpeech.PUNCT:
             return None
-        lemma_pos = pos_map.get(node.pos, 'n')
+        lemma_pos = word_map[node.pos]
         singular = lemmatizer.lemmatize(node.label, lemma_pos)
         return CycSynset(singular, node.pos, nlp_service, ollama_service, open_cyc_service)
     except ValueError as ve:
