@@ -87,9 +87,14 @@ def get_cyc_synset(node, nlp_service, ollama_service, open_cyc_service, lemmatiz
         pos_tag = PartOfSpeech.from_tag(node.pos)
         if pos_tag == PartOfSpeech.PUNCT:
             return None
-        lemma_pos = word_map[node.pos]
-        singular = lemmatizer.lemmatize(node.label, lemma_pos)
-        return CycSynset(singular, node.pos, nlp_service, ollama_service, open_cyc_service)
+        if node.pos in "NNS NNPS":
+            print(f"PLURAL_TAG={node.pos}")
+            print(f"PLURAL_LABEL={node.label}")
+            singular = lemmatizer.lemmatize(str(node.label))
+            print(f"SINGULAR={singular}")
+            return CycSynset(singular, node.pos, nlp_service, ollama_service, open_cyc_service)
+        else:
+            return CycSynset(node.label, node.pos, nlp_service, ollama_service, open_cyc_service)
     except ValueError as ve:
         print(ve)
         return None

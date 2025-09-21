@@ -108,7 +108,7 @@ class PartOfSpeech(Enum):
         Raises:
             ValueError: If the tag is not a valid Penn Treebank tag.
         """
-        if tag in cls.PUNCT_TAGS:
+        if tag in cls.PUNCT_TAGS.__str__():
             return cls.PUNCT
         for member in cls:
             if member.value == tag:

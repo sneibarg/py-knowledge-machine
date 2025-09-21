@@ -1,3 +1,10 @@
+from typing import List, Optional, Tuple
+
+from processor.nlp.PartOfSpeech import PartOfSpeech
+
+tag_map = PartOfSpeech.get_tag_map()
+
+
 def tokenize(s):
     s = s.replace('(', ' ( ')
     s = s.replace(')', ' ) ')
@@ -119,6 +126,95 @@ class TreeGenerator:
 
         return collect(self._root)
 
+    def get_top_level_node(self, target_node_type):
+        """
+        Returns the top-level phrase node containing a node of target_node_type.
+        The top-level phrase is the highest ancestor with a phrase label (as defined in
+        PartOfSpeech.PHRASE_TAGS) that is not nested within another node of the same phrase label.
+
+        Args:
+            target_node_type (str): The pos type of the node to search for (e.g., 'HYPH').
+
+        Returns:
+            Node: The top-level phrase node containing a node of target_node_type,
+                  or None if not found.
+        """
+        phrase_tags = [tag for tag in PartOfSpeech.PHRASE_TAGS.__str__()]
+
+        def find_top_level_phrase(node):
+            """
+            Find the highest ancestor that is a phrase node, not nested within
+            another node of the same phrase label.
+            """
+            if not node:
+                return None
+
+            candidate = node if node.pos in phrase_tags else None
+            parent = getattr(node, '_parent', None)
+            if parent:
+                parent_result = find_top_level_phrase(parent)
+                if parent_result and parent_result.pos != node.pos:
+                    return parent_result
+                return candidate
+            return candidate
+
+        target_nodes = self.get_nodes_by_type([target_node_type])
+        if not target_nodes:
+            return None
+
+        def set_parents(node, parent=None):
+            node._parent = parent
+            for child in node.children:
+                set_parents(child, node)
+        set_parents(self._root)
+
+        for target_node in target_nodes:
+            top_level_phrase = find_top_level_phrase(target_node)
+            if top_level_phrase:
+                return top_level_phrase
+
+        return None
+
+    def get_parent_phrase(self, target_node_type):
+        """
+        Returns the immediate parent phrase node containing a node of target_node_type.
+        The parent phrase is the closest ancestor with a phrase label (as defined in
+        PartOfSpeech.PHRASE_TAGS).
+
+        Args:
+            target_node_type (str): The pos type of the node to search for (e.g., 'HYPH').
+
+        Returns:
+            Node: The immediate parent phrase node containing a node of target_node_type,
+                  or None if not found.
+        """
+        phrase_tags = [tag for tag in PartOfSpeech.PHRASE_TAGS.__str__()]
+
+        def find_parent_phrase(node):
+            """
+            Find the immediate parent that is a phrase node.
+            """
+            parent = getattr(node, '_parent', None)
+            if parent and parent.pos in phrase_tags:
+                return parent
+            return None
+
+        target_nodes = self.get_nodes_by_type([target_node_type])
+        if not target_nodes:
+            return None
+
+        def set_parents(node, parent=None):
+            node._parent = parent
+            for child in node.children:
+                set_parents(child, node)
+        set_parents(self._root)
+
+        for target_node in target_nodes:
+            parent_phrase = find_parent_phrase(target_node)
+            if parent_phrase:
+                return parent_phrase  # Return the first match
+        return None
+
 
 def translate_parse_tree(tree_or_s, print_tree=False) -> TreeGenerator:
     if isinstance(tree_or_s, str):
@@ -132,3 +228,53 @@ def translate_parse_tree(tree_or_s, print_tree=False) -> TreeGenerator:
     if print_tree:
         print('\n'.join(lines))
     return generator
+
+
+def get_all_clauses(tree_generator: TreeGenerator) -> List[Node]:
+    clauses = [tree_generator.get_nodes_by_type(tag) for tag in tag_map['clause']]
+    flattened_clauses = [tag_node for tag_nodes in clauses for tag_node in tag_nodes]
+    return flattened_clauses
+
+
+def get_all_verbs(tree_generator: TreeGenerator) -> List[Node]:
+    verbs = [tree_generator.get_nodes_by_type(tag) for tag in tag_map['verb']]
+    flattened_verbs = [tag_node for tag_nodes in verbs for tag_node in tag_nodes]
+    return flattened_verbs
+
+
+def get_all_nouns(tree_generator: TreeGenerator) -> List[Node]:
+    nouns = [tree_generator.get_nodes_by_type(tag) for tag in tag_map['noun']]
+    flattened_nouns = [tag_node for tag_nodes in nouns for tag_node in tag_nodes]
+    return flattened_nouns
+
+
+def get_hyphenated_phrases(tree_generator: TreeGenerator) -> List[PartOfSpeech]:
+    hyphenated_phrases = []
+    hyphenated_nouns = tree_generator.get_nodes_by_type(PartOfSpeech.HYPH.value)
+    if len(hyphenated_nouns) > 0:
+        hyphenation = tree_generator.get_parent_phrase(PartOfSpeech.HYPH.value)
+        print(f"PARENT_PHRASE={hyphenation.pos}")
+        print(f"PARENT_CHILDREN={hyphenation.children}")
+        hyphenated_phrases.append(hyphenation.children)
+    return hyphenated_phrases
+
+
+def reconstruct_hyphenated_noun(node: Node) -> Optional[Tuple[Node, str]]:
+    reconstructed_noun = None
+    if not node.children:
+        return None
+    for child in node.children:
+        if child.pos == PartOfSpeech.NN.value or child.label == PartOfSpeech.NNS.value and reconstructed_noun is None:
+            reconstructed_noun = child.label + "-"
+            node = child
+        elif child.pos == PartOfSpeech.NNS.value:
+            reconstructed_noun = reconstructed_noun + child.label
+            node = child
+    print(f"Returning reconstructed noun {reconstructed_noun}")
+    return node, reconstructed_noun
+
+
+def sentence_analysis(tree_generator: TreeGenerator):
+    hyphenated_phrases = get_hyphenated_phrases(tree_generator)
+    if hyphenated_phrases > 0:
+        print(f"Sentence has {len(hyphenated_phrases)} hyphenated phrases!")
