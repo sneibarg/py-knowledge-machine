@@ -2,6 +2,8 @@ import os
 
 from logging import Logger
 from typing import List
+
+import yaml
 from nltk.corpus.reader import Synset
 from nltk.stem import WordNetLemmatizer
 from agent.CycReasoningAgent import CycReasoningAgent
@@ -18,19 +20,17 @@ def assert_cyc_synset(service: OpenCycService):
     service.assert_sentence(wff)
 
 
+with open("config.yaml", "r") as f:
+    config = yaml.safe_load(f)
+
 test_sentence: str = "if you can't sit up while laying flat then you could stand to do some sit-ups"
 wnl: WordNetLemmatizer = WordNetLemmatizer()
-payload: dict = {"word": "sit-up", "pos": "noun"}
-wordnet_api: str = "http://dragon:9081/wordnet/synsets"
-nlp_api_url: str = "http://dragon:9081/nlp"
-ollama_api_url: str = "http://localhost:11434/api/generate"
-cyc_host: str = "dragon:3602"
 logging_service: LoggingService = LoggingService(os.path.join(os.getcwd(), "runtime", "logs"), "word-to-KRL")
 logger: Logger = logging_service.setup_logging(False)
 wordnet_service: WordNetService = WordNetService(logger)
-open_cyc_service: OpenCycService = OpenCycService(cyc_host, logger)
-ollama_service: OllamaService = OllamaService(ollama_api_url, logger)
-nlp_service: NlpService = NlpService(nlp_api_url, logger)
+open_cyc_service: OpenCycService = OpenCycService(config['cyc_host'], logger)
+ollama_service: OllamaService = OllamaService(config['ollama_api_url'], logger)
+nlp_service: NlpService = NlpService(config['nlp_api_url'], logger)
 cyc_reasoning_agent: CycReasoningAgent = CycReasoningAgent(ollama_service, open_cyc_service, logger)
 relations: dict = nlp_service.stanford_relations(test_sentence)
 generator: TreeGenerator = translate_parse_tree(str(relations['sentences'][0]['parseTree']), print_tree=True)
