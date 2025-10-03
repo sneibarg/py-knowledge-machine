@@ -1,4 +1,5 @@
 from typing import List, Optional
+from processor.nlp import Node
 from processor.nlp.PartOfSpeech import PartOfSpeech
 from processor.nlp.Synset import Synset
 from service.CycLService import CycLService
@@ -80,18 +81,15 @@ class CycSynset(Synset):
         return self.__relevant(answers, "CollectionDenotingFunction")
 
 
-def get_cyc_synset(node, nlp_service, ollama_service, open_cyc_service, lemmatizer) -> Optional[CycSynset]:
+def get_cyc_synset(node: Node, nlp_service, ollama_service, open_cyc_service, lemmatizer) -> Optional[CycSynset]:
     if node.label is None:
         return None
     try:
         pos_tag = PartOfSpeech.from_tag(node.pos)
         if pos_tag == PartOfSpeech.PUNCT:
             return None
-        if node.pos in "NNS NNPS":
-            print(f"PLURAL_TAG={node.pos}")
-            print(f"PLURAL_LABEL={node.label}")
+        if node.pos is PartOfSpeech.NN.name or node.pos is PartOfSpeech.NNS.name:
             singular = lemmatizer.lemmatize(str(node.label))
-            print(f"SINGULAR={singular}")
             return CycSynset(singular, node.pos, nlp_service, ollama_service, open_cyc_service)
         else:
             return CycSynset(node.label, node.pos, nlp_service, ollama_service, open_cyc_service)
