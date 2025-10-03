@@ -4,6 +4,13 @@ import sys
 from datetime import datetime
 
 
+class UTF8BOMFileHandler(logging.FileHandler):
+    def __init__(self, filename, mode='a', encoding='utf-8', delay=False):
+        super().__init__(filename, mode, encoding, delay)
+        if mode == 'w' or (mode == 'a' and self.stream.tell() == 0):
+            self.stream.write('\ufeff')
+
+
 class LoggingService:
     def __init__(self, logger_dir, logger_name):
         self.logger_dir = logger_dir
@@ -32,7 +39,7 @@ class LoggingService:
         new_logger = logging.getLogger(self.logger_name)
         new_logger.setLevel(logging.INFO if not debug else logging.DEBUG)
         formatter = logging.Formatter("%(asctime)s [PID %(process)d] [%(levelname)s] [%(name)s] %(message)s")
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler = UTF8BOMFileHandler(log_file, mode='w', encoding='utf-8')
         file_handler.setFormatter(formatter)
         new_logger.addHandler(file_handler)
 

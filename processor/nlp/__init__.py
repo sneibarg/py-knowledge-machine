@@ -47,7 +47,7 @@ def to_node(tree):
         return Node(label=None, pos=label, children=parsed_children)
 
 
-def translate_parse_tree(tree_or_s, print_tree=False) -> TreeGenerator:
+def translate_parse_tree(tree_or_s, logger=None, log_tree=False, print_tree=False) -> TreeGenerator:
     if isinstance(tree_or_s, str):
         tokens = tokenize(tree_or_s)
         tree = parse(tokens)
@@ -58,6 +58,8 @@ def translate_parse_tree(tree_or_s, print_tree=False) -> TreeGenerator:
     lines = generator.build_tree()
     if print_tree:
         print('\n'.join(lines))
+    if log_tree and logger is not None:
+        logger.info('\n'.join(line.encode('utf-8').decode('utf-8') for line in lines))
     return generator
 
 
