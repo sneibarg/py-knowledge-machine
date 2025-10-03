@@ -1,9 +1,8 @@
 import os
+import yaml
 
 from logging import Logger
 from typing import List
-
-import yaml
 from nltk.corpus.reader import Synset
 from nltk.stem import WordNetLemmatizer
 from agent.CycReasoningAgent import CycReasoningAgent
