@@ -14,7 +14,7 @@ from service.WordNetService import WordNetService
 
 
 def assert_cyc_synset(service: OpenCycService):
-    wff: str = None
+    wff: str = ""
     service.assert_sentence(wff)
 
 

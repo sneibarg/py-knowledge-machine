@@ -5,7 +5,7 @@ import rdflib
 from collections import defaultdict
 from functools import partial
 from rdflib import Literal, URIRef, RDFS, RDF, OWL
-from service.KMSyntaxService import STANDARD_PREDICATES
+from service.KMService import STANDARD_PREDICATES
 
 
 class OWLGraphProcessor:

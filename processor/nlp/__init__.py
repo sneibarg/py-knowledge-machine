@@ -1,5 +1,4 @@
 from typing import List, Optional, Tuple
-
 from processor.nlp.PartOfSpeech import PartOfSpeech
 
 tag_map = PartOfSpeech.get_tag_map()

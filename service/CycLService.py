@@ -4,7 +4,7 @@ import time
 
 from typing import List, Dict, Optional
 from bs4 import BeautifulSoup
-from service import cb_handle_query, update_cyc_payload, cb_handle_create, cb_handle_assert, cb_continue_query, cb_handle_specify
+from processor.opencyc import cb_handle_query, update_cyc_payload, cb_handle_create, cb_handle_assert, cb_continue_query, cb_handle_specify
 
 
 def is_invalid_constant_references(soup):
