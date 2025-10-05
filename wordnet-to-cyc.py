@@ -23,6 +23,7 @@ with open("config.yaml", "r") as f:
     config = yaml.safe_load(f)
 
 test_sentence: str = "if you can't sit up while laying flat then you could stand to do some sit-ups"
+test_sentence_02: str = "The enumeration in the constitution of certain rights shall not be construed to deny or disparage others retained by the people."
 wnl: WordNetLemmatizer = WordNetLemmatizer()
 logging_service: LoggingService = LoggingService(os.path.join(os.getcwd(), "runtime", "logs"), "word-to-KRL")
 logger: Logger = logging_service.setup_logging(False)
