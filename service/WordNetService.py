@@ -19,6 +19,12 @@ class WordNetService:
         except Exception as e:
             self.logger.warning(f"Failed to load WordNet corpus: {e}. Falling back to offline mode if available.")
 
+    def get_synsets_by_pos(self, pos: str) -> List:
+        synsets = wn.all_synsets(pos=pos)
+        if not synsets:
+            self.logger.debug(f"No synsets found for part of speech: {pos}")
+        return synsets
+
     def get_synsets(self, word: str) -> List:
         synsets = wn.synsets(word)
         if not synsets:
@@ -53,3 +59,16 @@ class WordNetService:
             return None
         max_sim = max((wn.wup_similarity(s1, s2) or 0) for s1 in synsets1 for s2 in synsets2)
         return max_sim if max_sim > 0 else None
+
+    def traverse(self, synset, visited=None, depth=0):
+        if visited is None:
+            visited = set()
+
+        if synset.id in visited:
+            return
+
+        visited.add(synset.id)
+        definition = synset.definition() or 'No definition available'
+        print('  ' * depth + synset.id + ': ' + definition)
+        for hyponym in synset.hyponyms():
+            self.traverse(hyponym, visited, depth + 1)

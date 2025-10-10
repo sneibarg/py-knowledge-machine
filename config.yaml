@@ -1,0 +1,23 @@
+wordnet_api: "http://dragon:9081/wordnet/synsets"
+nlp_api_url: "http://dragon:9081/nlp"
+ollama_api_url: "http://localhost:11434/api/generate"
+cyc_host: "dragon:3602"
+job_runner:
+  dataset_downloader:
+    namespace:
+    namespace_mode:
+    dataset_name:
+    output_dir:
+    log_dir:
+    cache_dir:
+    no_splits: false
+    skip_datasets: false
+    clean_default_cache: false
+  opencyc_to_km:
+    use_sparql_queries: false
+    debug: false
+    dry_run: false
+    translate_only: false
+    generate_only: false
+  wordnet_to_cyc:
+    debug: false

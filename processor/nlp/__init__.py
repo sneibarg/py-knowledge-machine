@@ -1,87 +1,113 @@
-class ParseTreeNode:
-    def __init__(self, label):
-        self.label = label
-        self.children = []
-        self.word = None
+from typing import List, Optional, Tuple
+from processor.nlp.PartOfSpeech import PartOfSpeech
+from processor.nlp.TreeGenerator import TreeGenerator, Node
 
-    def __str__(self):
-        if self.word is not None:
-            return f"({self.label} {self.word})"
+tag_map = PartOfSpeech.get_tag_map()
+
+
+def tokenize(s):
+    s = s.replace('(', ' ( ')
+    s = s.replace(')', ' ) ')
+    return [token for token in s.split() if token]  # Remove any empty tokens
+
+
+def parse(tokens):
+    if not tokens:
+        raise ValueError("Empty tokens")
+
+    token = tokens.pop(0)
+    if token != '(':
+        raise ValueError("Expected '('")
+
+    label = tokens.pop(0)
+    children = []
+
+    while tokens:
+        next_token = tokens[0]
+        if next_token == ')':
+            tokens.pop(0)
+            return [label, children]
+        elif next_token == '(':
+            children.append(parse(tokens))
         else:
-            return f"({self.label} {' '.join(map(str, self.children))})"
+            children.append(tokens.pop(0))
 
-    @classmethod
-    def from_string(cls, s):
-        tokens = cls._tokenize(s)
-        tree, _ = cls._parse(tokens, 0)
-        return tree
+    raise ValueError("Unclosed parenthesis")
 
-    @staticmethod
-    def _tokenize(s):
-        tokens = []
-        curr = ''
-        for char in s:
-            if char.isspace():
-                if curr:
-                    tokens.append(curr)
-                curr = ''
-                continue
-            if char in '()':
-                if curr:
-                    tokens.append(curr)
-                curr = ''
-                tokens.append(char)
-            else:
-                curr += char
-        if curr:
-            tokens.append(curr)
-        return tokens
 
-    @staticmethod
-    def _parse(tokens, idx):
-        assert tokens[idx] == '('
-        idx += 1
-        label = tokens[idx]
-        idx += 1
-        node = ParseTreeNode(label)
-        if tokens[idx] == ')':
-            idx += 1
-            return node, idx
-        if tokens[idx] != '(':
-            node.word = tokens[idx]
-            idx += 1
-            assert tokens[idx] == ')'
-            idx += 1
-            return node, idx
-        while tokens[idx] != ')':
-            child, idx = ParseTreeNode._parse(tokens, idx)
-            node.children.append(child)
-        idx += 1
-        return node, idx
+def to_node(tree):
+    if isinstance(tree, str):
+        return Node(label=tree, pos=None)
+    label, children = tree
+    parsed_children = [to_node(c) for c in children]
+    if len(parsed_children) == 1 and isinstance(parsed_children[0], Node) and parsed_children[0].pos is None:
+        word_node = parsed_children[0]
+        return Node(label=word_node.label, pos=label, children=[])
+    else:
+        return Node(label=None, pos=label, children=parsed_children)
 
-    def get_nodes_by_label(self, label, skip_self=False):
-        res = []
-        if not skip_self and self.label == label:
-            res.append(self)
-        for child in self.children:
-            res.extend(child.get_nodes_by_label(label, skip_self=False))
-        return res
 
-    def get_words_by_tags(self, tags):
-        res = []
-        if self.word is not None:
-            if self.label in tags:
-                res.append(self.word)
-        else:
-            for child in self.children:
-                res.extend(child.get_words_by_tags(tags))
-        return res
+def translate_parse_tree(tree_or_s, logger=None, log_tree=False, print_tree=False) -> TreeGenerator:
+    if isinstance(tree_or_s, str):
+        tokens = tokenize(tree_or_s)
+        tree = parse(tokens)
+    else:
+        tree = tree_or_s  # Assume it's already the parsed tree structure as [label, children]
+    root = to_node(tree)
+    generator = TreeGenerator(root)
+    lines = generator.build_tree()
+    if print_tree:
+        print('\n'.join(lines))
+    if log_tree and logger is not None:
+        logger.info('\n'.join(line.encode('utf-8').decode('utf-8') for line in lines))
+    return generator
 
-    def leaves(self):
-        """Return a list of all leaf words in the tree."""
-        if self.word is not None:
-            return [self.word]
-        res = []
-        for child in self.children:
-            res.extend(child.leaves())
-        return res
+
+def get_all_clauses(tree_generator: TreeGenerator) -> List[Node]:
+    clauses = [tree_generator.get_nodes_by_type(tag) for tag in tag_map['clause']]
+    flattened_clauses = [tag_node for tag_nodes in clauses for tag_node in tag_nodes]
+    return flattened_clauses
+
+
+def get_all_verbs(tree_generator: TreeGenerator) -> List[Node]:
+    verbs = [tree_generator.get_nodes_by_type(tag) for tag in tag_map['verb']]
+    flattened_verbs = [tag_node for tag_nodes in verbs for tag_node in tag_nodes]
+    return flattened_verbs
+
+
+def get_all_nouns(tree_generator: TreeGenerator) -> List[Node]:
+    nouns = [tree_generator.get_nodes_by_type(tag) for tag in tag_map['noun']]
+    flattened_nouns = [tag_node for tag_nodes in nouns for tag_node in tag_nodes]
+    return flattened_nouns
+
+
+def get_hyphenated_phrases(tree_generator: TreeGenerator) -> List[PartOfSpeech]:
+    hyphenated_phrases = []
+    hyphenated_nouns = tree_generator.get_nodes_by_type(PartOfSpeech.HYPH.value)
+    if len(hyphenated_nouns) > 0:
+        hyphenation = tree_generator.get_parent_phrase(PartOfSpeech.HYPH.value)
+        print(f"PARENT_PHRASE={hyphenation.pos}")
+        print(f"PARENT_CHILDREN={hyphenation.children}")
+        hyphenated_phrases.append(hyphenation.children)
+    return hyphenated_phrases
+
+
+def reconstruct_hyphenated_noun(node: Node) -> Optional[Tuple[Node, str]]:
+    reconstructed_noun = None
+    if not node.children:
+        return None
+    for child in node.children:
+        if child.pos == PartOfSpeech.NN.value or child.label == PartOfSpeech.NNS.value and reconstructed_noun is None:
+            reconstructed_noun = child.label + "-"
+            node = child
+        elif child.pos == PartOfSpeech.NNS.value:
+            reconstructed_noun = reconstructed_noun + child.label
+            node = child
+    print(f"Returning reconstructed noun {reconstructed_noun}")
+    return node, reconstructed_noun
+
+
+def sentence_analysis(tree_generator: TreeGenerator):
+    hyphenated_phrases = get_hyphenated_phrases(tree_generator)
+    if hyphenated_phrases > 0:
+        print(f"Sentence has {len(hyphenated_phrases)} hyphenated phrases!")

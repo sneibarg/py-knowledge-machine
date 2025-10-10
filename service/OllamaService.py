@@ -1,16 +1,10 @@
 import json
-import os
 import time
 import requests
 
+from typing import Optional
 from tenacity import stop_after_attempt, wait_exponential, retry_if_exception_type, retry
 from service import get_session
-from service.LoggingService import LoggingService
-from typing import Optional
-
-logging_service = LoggingService(os.path.join(os.getcwd(), "runtime", "logs"), 'OllamaService')
-logger = logging_service.setup_logging(False)
-worker_logger = None
 
 
 class OllamaService:
@@ -50,11 +44,11 @@ class OllamaService:
             try:
                 json_response = response.json()
                 if 'response' not in json_response:
-                    worker_logger.error(f"Missing 'response' key in JSON from {self.api_url}")
+                    self.logger.error(f"Missing 'response' key in JSON from {self.api_url}")
                     return None
                 return json_response['response']
             except json.JSONDecodeError as e:
-                worker_logger.error(f"Invalid JSON response from {self.api_url}: {e}")
+                self.logger.error(f"Invalid JSON response from {self.api_url}: {e}")
                 return None
         except requests.exceptions.Timeout as e:
             self.logger.error(f"Timeout error contacting {self.api_url}: {e}")
