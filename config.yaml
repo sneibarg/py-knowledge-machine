@@ -2,6 +2,8 @@ wordnet_api: "http://dragon:9081/wordnet/synsets"
 nlp_api_url: "http://dragon:9081/nlp"
 ollama_api_url: "http://localhost:11434/api/generate"
 cyc_host: "dragon:3602"
+temporal_server: "dragon:7233"
+log_dir: ./logs
 job_runner:
   dataset_downloader:
     namespace:
